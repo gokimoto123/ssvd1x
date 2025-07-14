@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SSVD-R1 Test Data Generator - Git Version</title>
+    <title>SSVD-R1 Biomarker Discovery Tool</title>
     <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -21,7 +21,7 @@
     <div id="root"></div>
 
     <script type="text/babel">
-        const { useState, useMemo } = React;
+        const { useState, useMemo, useEffect } = React;
 
         // Test Data Generation Component
         function TestDataGenerator() {
@@ -34,6 +34,14 @@
             const [isGenerating, setIsGenerating] = useState(false);
             const [showHelp, setShowHelp] = useState(false);
 
+            // SSVD-R1 Algorithm states
+            const [alpha, setAlpha] = useState(0.1);
+            const [ssvdResults, setSsvdResults] = useState(null);
+            const [isRunningSsvd, setIsRunningSsvd] = useState(false);
+            
+            // Fixed alphaMaxMultiplier (not user-adjustable)
+            const alphaMaxMultiplier = 0.75;
+
             // Reset function to restore default values
             const resetToDefaults = () => {
                 setP(1000);
@@ -44,6 +52,9 @@
                 setTestMatrix(null);
                 setIsGenerating(false);
                 setShowHelp(false);
+                setAlpha(0.0);
+                setSsvdResults(null);
+                setIsRunningSsvd(false);
             };
 
             // Calculate Signal-to-Noise Ratio
@@ -53,6 +64,181 @@
                 const noisePwr = P * noiseVariance;
                 return 10 * Math.log10(sigPwr / noisePwr);
             }, [signalScale, noiseVariance, P, K]);
+
+            // Matrix operations utilities
+            const matrixMultiply = (A, B) => {
+                if (!A.length || !B.length || A[0].length !== B.length) {
+                    throw new Error('Invalid matrix dimensions for multiplication');
+                }
+                const result = Array(A.length).fill().map(() => Array(B[0].length).fill(0));
+                for (let i = 0; i < A.length; i++) {
+                    for (let j = 0; j < B[0].length; j++) {
+                        for (let k = 0; k < B.length; k++) {
+                            result[i][j] += A[i][k] * B[k][j];
+                        }
+                    }
+                }
+                return result;
+            };
+
+            const transpose = (matrix) => {
+                if (!matrix.length || !matrix[0].length) return [];
+                return matrix[0].map((_, colIndex) => matrix.map(row => row[colIndex]));
+            };
+
+            const norm = (vector) => {
+                return Math.sqrt(vector.reduce((sum, val) => sum + val * val, 0));
+            };
+
+            // SVD implementation - EXACT copy from artifact code
+            const svd1 = (X) => {
+                if (!X.length || !X[0].length) {
+                    throw new Error('Empty matrix provided to SVD');
+                }
+                
+                const XT = transpose(X);
+                const XTX = matrixMultiply(XT, X);
+                
+                let v = Array(XTX.length).fill().map(() => Math.random() - 0.5);
+                let vnorm = norm(v);
+                if (vnorm === 0) {
+                    v = Array(XTX.length).fill().map((_, i) => i === 0 ? 1 : 0);
+                    vnorm = 1;
+                }
+                v = v.map(x => x / vnorm);
+                
+                let prevV = [...v];
+                for (let i = 0; i < 200; i++) {
+                    const newV = XTX.map(row => row.reduce((sum, val, idx) => sum + val * v[idx], 0));
+                    vnorm = norm(newV);
+                    if (vnorm === 0) break;
+                    v = newV.map(x => x / vnorm);
+                    
+                    const diff = v.reduce((sum, val, idx) => sum + Math.abs(val - prevV[idx]), 0);
+                    if (diff < 1e-10) break;
+                    prevV = [...v];
+                }
+                
+                const u = X.map(row => row.reduce((sum, val, idx) => sum + val * v[idx], 0));
+                const unorm = norm(u);
+                if (unorm === 0) {
+                    return { u: Array(X.length).fill(0), s: 0, v };
+                }
+                const uNormalized = u.map(x => x / unorm);
+                
+                const s = Math.abs(uNormalized.reduce((sum, val, idx) => sum + val * X[idx].reduce((s2, v2, j) => s2 + v2 * v[j], 0), 0));
+                
+                return { u: uNormalized, s, v };
+            };
+
+            // Calculate dynamic alpha range based on test data SVD
+            const alphaMax = useMemo(() => {
+                if (!testMatrix || !testMatrix.matrix) {
+                    return 1.0;
+                }
+                
+                try {
+                    // Use the exact same SVD call that works in the DEBUG section
+                    const matrix = testMatrix.matrix;
+                    const { u, s } = svd1(matrix);
+                    const maxAbsU1 = Math.max(...u.map(val => Math.abs(val)));
+                    const result = 0.75 * maxAbsU1 * s;
+                    
+                    console.log('AlphaMax useMemo: maxAbsU1=', maxAbsU1, 's=', s, 'result=', result);
+                    return result;
+                } catch (error) {
+                    console.error('AlphaMax useMemo failed:', error);
+                    return 1.0;
+                }
+            }, [testMatrix]);
+
+            // Set alpha to a reasonable starting value when alphaMax changes
+            useEffect(() => {
+                if (testMatrix && alphaMax > 0) {
+                    // Set alpha to 10% of alphaMax as a reasonable starting point
+                    setAlpha(alphaMax * 0.1);
+                }
+            }, [alphaMax, testMatrix]);
+
+            // SSVD-R1 Algorithm
+            const SSVDR1Algorithm = ({ matrix, alpha, maxIter = 5000, tolerance = 0.0001 }) => {
+                if (!matrix || !matrix.length || !matrix[0].length) {
+                    throw new Error('Invalid matrix provided');
+                }
+                
+                const { u: u0, s: s0, v: v0 } = svd1(matrix);
+                
+                let u = [...u0];
+                let v = [...v0];
+                let uPrev = [...u0];
+                let aPrev = matrixMultiply(u0.map(x => [x * s0]), [v0]);
+                
+                let iterCount = 0;
+                let error = 1;
+                const errors = [];
+                const sparsityHistory = [];
+                const singularValues = [];
+                
+                while (error > tolerance && iterCount < maxIter) {
+                    iterCount++;
+                    
+                    const XT = transpose(matrix);
+                    v = XT.map(row => row.reduce((sum, val, idx) => sum + val * u[idx], 0));
+                    const vNorm = norm(v);
+                    if (vNorm > 0) {
+                        v = v.map(x => x / vNorm);
+                    }
+                    
+                    u = matrix.map(row => row.reduce((sum, val, idx) => sum + val * v[idx], 0));
+                    u = u.map(x => Math.sign(x) * Math.max(Math.abs(x) - alpha, 0));
+                    const uNorm = norm(u);
+                    if (uNorm > 0) {
+                        u = u.map(x => x / uNorm);
+                    }
+                    
+                    const sval = u.reduce((sum, uVal, i) => 
+                        sum + uVal * matrix[i].reduce((s2, xVal, j) => s2 + xVal * v[j], 0), 0);
+                    
+                    const nonZeros = u.filter(val => Math.abs(val) > 1e-10).length;
+                    const sparsity = (u.length - nonZeros) / u.length;
+                    sparsityHistory.push(sparsity);
+                    singularValues.push(Math.abs(sval));
+                    
+                    const a = matrixMultiply(u.map(x => [x * Math.abs(sval)]), [v]);
+                    
+                    error = 0;
+                    for (let i = 0; i < a.length; i++) {
+                        for (let j = 0; j < a[0].length; j++) {
+                            const diff = a[i][j] - aPrev[i][j];
+                            error += diff * diff;
+                        }
+                    }
+                    error = Math.sqrt(error);
+                    errors.push(error);
+                    
+                    if (isNaN(error) || !isFinite(error)) {
+                        console.warn('Numerical instability detected');
+                        break;
+                    }
+                    
+                    uPrev = [...u];
+                    aPrev = a.map(row => [...row]);
+                }
+                
+                const finalS = Math.abs(u.reduce((sum, uVal, i) => 
+                    sum + uVal * matrix[i].reduce((s2, xVal, j) => s2 + xVal * v[j], 0), 0));
+                
+                return {
+                    u,
+                    s: finalS,
+                    v,
+                    iterations: iterCount,
+                    converged: error <= tolerance,
+                    errors,
+                    sparsityHistory,
+                    singularValues
+                };
+            };
 
             // Box-Muller transform for generating Gaussian noise
             const generateGaussianNoise = (variance) => {
@@ -103,11 +289,46 @@
                     
                     setTestMatrix({ matrix, selectedRows });
                     
+                    // Reset SSVD results and set alpha to a reasonable starting value
+                    setSsvdResults(null);
+                    // Alpha will be reset to a fraction of alphaMax when alphaMax recalculates
+                    
                 } catch (error) {
                     console.error('Error generating matrix:', error);
                     alert('Error generating test matrix: ' + error.message);
                 } finally {
                     setIsGenerating(false);
+                }
+            };
+
+            // Run SSVD-R1 Algorithm
+            const runSSVDR1 = async () => {
+                if (!testMatrix) {
+                    alert('Please generate test data first!');
+                    return;
+                }
+                
+                setIsRunningSsvd(true);
+                setSsvdResults(null);
+                
+                try {
+                    // Small delay for UI responsiveness
+                    await new Promise(resolve => setTimeout(resolve, 100));
+                    
+                    const results = SSVDR1Algorithm({
+                        matrix: testMatrix.matrix,
+                        alpha: alpha,
+                        maxIter: 5000,
+                        tolerance: 0.0001
+                    });
+                    
+                    setSsvdResults(results);
+                    
+                } catch (error) {
+                    console.error('SSVD-R1 failed:', error);
+                    alert('SSVD-R1 algorithm failed: ' + error.message);
+                } finally {
+                    setIsRunningSsvd(false);
                 }
             };
 
@@ -178,10 +399,10 @@
                         <div className="flex justify-between items-start mb-6">
                             <div>
                                 <h1 className="text-3xl font-bold text-gray-800 mb-2">
-                                    SSVD-R1: Test Data Generator
+                                    SSVD-R1: Biomarker Discovery Tool
                                 </h1>
                                 <p className="text-gray-600 mb-3">
-                                    Generate synthetic biomarker data matrices with embedded step-function signals
+                                    Sparse Singular Value Decomposition for biomarker discovery with synthetic data generation and algorithm testing
                                 </p>
                                 <div className="flex items-center space-x-4 text-sm text-gray-500">
                                     <span>🧬 Biomarker Data</span>
@@ -462,6 +683,172 @@
                                     <p className="text-sm text-gray-600">Noise Variables</p>
                                 </div>
                             </div>
+                        </div>
+                    )}
+
+                    {/* SSVD-R1 Algorithm Section */}
+                    {testMatrix && (
+                        <div className="bg-white rounded-lg shadow-lg p-6 mt-6">
+                            <h3 className="text-xl font-semibold text-gray-800 mb-4 flex items-center">
+                                <span className="text-2xl mr-2">🧮</span>
+                                SSVD-R1 Algorithm
+                            </h3>
+                            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+                                <h4 className="font-medium text-blue-800 mb-2 flex items-center">
+                                    <span className="text-lg mr-2">🎯</span>
+                                    Sparse Singular Value Decomposition
+                                </h4>
+                                <p className="text-sm text-blue-700">
+                                    SSVD-R1 uses L1 regularization (alpha parameter) to find sparse biomarker signals. 
+                                    Larger alpha values promote sparsity by setting more coefficients to zero.
+                                </p>
+                            </div>
+                            
+                            {/* Alpha Parameter Control */}
+                            <div className="mb-6">
+                                <label className="block text-sm font-medium text-gray-600 mb-1">
+                                    Alpha (Sparsity Parameter): {alpha.toFixed(4)} | Max: {alphaMax} | Test: {!!testMatrix}
+                                </label>
+                                <input
+                                    type="range"
+                                    min="0"
+                                    max={alphaMax}
+                                    step={Math.max(alphaMax / 1000, 0.0001)}
+                                    value={alpha}
+                                    onChange={(e) => setAlpha(parseFloat(e.target.value))}
+                                    className="w-full"
+                                    disabled={isRunningSsvd}
+                                    key={`alpha-slider-${alphaMax}`}
+                                />
+                                <div className="flex justify-between text-xs text-gray-500 mt-1">
+                                    <span>Dense (0)</span>
+                                    <span>Sparse ({alphaMax.toFixed(3)})</span>
+                                </div>
+                                <div className="mt-2 p-2 bg-blue-50 border border-blue-200 rounded-md">
+                                    <p className="text-xs text-blue-700">
+                                        <strong>Alpha Range:</strong> 0 to {alphaMax.toFixed(4)}
+                                    </p>
+                                    <p className="text-xs text-blue-600 mt-1">
+                                        αₘₐₓ = 0.75 × max(|u₁|) × s₁ (dynamically calculated from SVD)
+                                    </p>
+                                    {testMatrix && (
+                                        <div className="text-xs text-green-600 mt-2 border-t pt-2">
+                                            <p><strong>✓ WORKING:</strong> Current alphaMax = {alphaMax.toFixed(4)}</p>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* Run SSVD-R1 Button */}
+                            <button
+                                onClick={runSSVDR1}
+                                disabled={isRunningSsvd || !testMatrix}
+                                className="w-full bg-purple-600 hover:bg-purple-700 disabled:bg-purple-300 text-white font-semibold py-4 px-6 rounded-lg transition-colors shadow-lg mb-6"
+                            >
+                                {isRunningSsvd ? (
+                                    <span className="flex items-center justify-center">
+                                        <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                        </svg>
+                                        Running SSVD-R1...
+                                    </span>
+                                ) : (
+                                    <span className="flex items-center justify-center">
+                                        <span className="text-lg mr-2">🚀</span>
+                                        Run SSVD-R1 Algorithm
+                                    </span>
+                                )}
+                            </button>
+
+                            {/* SSVD-R1 Results */}
+                            {ssvdResults && (
+                                <div className="space-y-6">
+                                    <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                                        <h4 className="font-semibold text-green-800 mb-3 flex items-center">
+                                            <span className="text-lg mr-2">✅</span>
+                                            SSVD-R1 Results
+                                        </h4>
+                                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm text-green-700">
+                                            <div>
+                                                <p className="font-medium">Algorithm Status</p>
+                                                <p>{ssvdResults.converged ? 'Converged' : 'Max Iterations'}</p>
+                                            </div>
+                                            <div>
+                                                <p className="font-medium">Iterations</p>
+                                                <p>{ssvdResults.iterations}</p>
+                                            </div>
+                                            <div>
+                                                <p className="font-medium">Singular Value</p>
+                                                <p>{ssvdResults.s.toFixed(4)}</p>
+                                            </div>
+                                            <div>
+                                                <p className="font-medium">Non-Zero Elements</p>
+                                                <p>{ssvdResults.u.filter(val => Math.abs(val) > 1e-6).length}</p>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Detection Performance */}
+                                    <div className="bg-gray-50 p-4 rounded-lg">
+                                        <h4 className="font-medium text-gray-700 mb-3">Detection Performance</h4>
+                                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                            {(() => {
+                                                const detectedRows = ssvdResults.u.map((val, idx) => Math.abs(val) > 1e-6 ? idx : -1).filter(idx => idx !== -1);
+                                                const truePositives = detectedRows.filter(row => testMatrix.selectedRows.includes(row)).length;
+                                                const falsePositives = detectedRows.filter(row => !testMatrix.selectedRows.includes(row)).length;
+                                                const falseNegatives = testMatrix.selectedRows.filter(row => !detectedRows.includes(row)).length;
+                                                const precision = truePositives + falsePositives > 0 ? truePositives / (truePositives + falsePositives) : 0;
+                                                const recall = truePositives + falseNegatives > 0 ? truePositives / (truePositives + falseNegatives) : 0;
+                                                const f1Score = precision + recall > 0 ? 2 * (precision * recall) / (precision + recall) : 0;
+
+                                                return (
+                                                    <>
+                                                        <div className="text-center p-3 bg-white rounded-md">
+                                                            <p className="text-lg font-bold text-green-600">{truePositives}</p>
+                                                            <p className="text-xs text-gray-600">True Positives</p>
+                                                        </div>
+                                                        <div className="text-center p-3 bg-white rounded-md">
+                                                            <p className="text-lg font-bold text-red-600">{falsePositives}</p>
+                                                            <p className="text-xs text-gray-600">False Positives</p>
+                                                        </div>
+                                                        <div className="text-center p-3 bg-white rounded-md">
+                                                            <p className="text-lg font-bold text-blue-600">{precision.toFixed(3)}</p>
+                                                            <p className="text-xs text-gray-600">Precision</p>
+                                                        </div>
+                                                        <div className="text-center p-3 bg-white rounded-md">
+                                                            <p className="text-lg font-bold text-purple-600">{f1Score.toFixed(3)}</p>
+                                                            <p className="text-xs text-gray-600">F1 Score</p>
+                                                        </div>
+                                                    </>
+                                                );
+                                            })()}
+                                        </div>
+                                    </div>
+
+                                    {/* Detected Biomarkers */}
+                                    <div className="bg-white p-4 border border-gray-200 rounded-lg">
+                                        <h4 className="font-medium text-gray-700 mb-3">Detected vs True Biomarkers</h4>
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                                            <div>
+                                                <p className="font-medium text-gray-600 mb-2">True Signal Rows ({testMatrix.selectedRows.length}):</p>
+                                                <p className="text-gray-700 bg-gray-50 p-2 rounded font-mono text-xs">
+                                                    {testMatrix.selectedRows.join(', ') || 'None'}
+                                                </p>
+                                            </div>
+                                            <div>
+                                                <p className="font-medium text-gray-600 mb-2">Detected Rows ({ssvdResults.u.filter(val => Math.abs(val) > 1e-6).length}):</p>
+                                                <p className="text-gray-700 bg-gray-50 p-2 rounded font-mono text-xs">
+                                                    {ssvdResults.u.map((val, idx) => Math.abs(val) > 1e-6 ? idx : -1)
+                                                        .filter(idx => idx !== -1)
+                                                        .sort((a, b) => a - b)
+                                                        .join(', ') || 'None detected'}
+                                                </p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     )}
                 </div>
