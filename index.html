@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="SSVD-R1: Sparse Singular Value Decomposition for biomarker discovery with False Discovery Rate analysis">
+    <meta name="keywords" content="SSVD, sparse SVD, biomarker discovery, FDR analysis, matrix decomposition">
+    <title>SSVD-R1: Sparse SVD Biomarker Discovery</title>
+    
+    <!-- React 18 CDN -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    
+    <!-- Babel for JSX transformation -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Custom styles -->
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div id="root"></div>
+    
+    <!-- Error display for debugging -->
+    <div id="error-log" style="position: fixed; top: 10px; right: 10px; background: red; color: white; padding: 10px; border-radius: 5px; display: none; z-index: 9999;"></div>
+    
+    <script>
+        // Global error handler for debugging
+        window.onerror = function(msg, url, line, col, error) {
+            const errorLog = document.getElementById('error-log');
+            errorLog.innerHTML = `Error: ${msg}<br>Line: ${line}`;
+            errorLog.style.display = 'block';
+            setTimeout(() => errorLog.style.display = 'none', 5000);
+            console.error('JavaScript Error:', msg, 'at line', line);
+            return false;
+        };
+        
+        console.log('SSVD-R1 Application Starting...');
+        console.log('React version:', React.version);
+        console.log('ReactDOM available:', typeof ReactDOM);
+    </script>
+    
+    <!-- Application JavaScript -->
+    <script type="text/babel" src="src/App.jsx"></script>
+    <script type="text/babel">
+        // Render the application
+        const { StrictMode } = React;
+        ReactDOM.render(
+            React.createElement(StrictMode, null, 
+                React.createElement(SSVDR1Analyzer)
+            ), 
+            document.getElementById('root')
+        );
+        console.log('SSVD-R1 Application Rendered Successfully!');
+    </script>
+</body>
+</html>

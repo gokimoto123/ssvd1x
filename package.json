@@ -1,0 +1,37 @@
+{
+  "name": "ssvd-r1-biomarker-discovery",
+  "version": "1.0.0",
+  "description": "SSVD-R1: Sparse Singular Value Decomposition for biomarker discovery with False Discovery Rate analysis",
+  "main": "index.html",
+  "scripts": {
+    "start": "python3 -m http.server 8000",
+    "dev": "python3 -m http.server 8000 --bind 127.0.0.1",
+    "serve": "python3 -m http.server 8000 --bind 0.0.0.0"
+  },
+  "keywords": [
+    "SSVD",
+    "sparse SVD",
+    "biomarker discovery", 
+    "FDR analysis",
+    "matrix decomposition",
+    "bioinformatics",
+    "machine learning"
+  ],
+  "author": "SSVD-R1 Research Team",
+  "license": "MIT",
+  "dependencies": {
+    "react": "^18.0.0",
+    "react-dom": "^18.0.0"
+  },
+  "devDependencies": {
+    "@babel/standalone": "^7.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-username/ssvd-r1-project-III.git"
+  },
+  "bugs": {
+    "url": "https://github.com/your-username/ssvd-r1-project-III/issues"
+  },
+  "homepage": "https://github.com/your-username/ssvd-r1-project-III#readme"
+}
