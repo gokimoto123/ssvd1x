@@ -97,10 +97,11 @@ For test data with SNR = -20 dB:
 ## Technical Verification
 
 ### Formula Validation
-✅ `αₘₐₓ = 0.75 × max(|u₁|) × s₁` 
+✅ `alphaMax = alphaMaxMultiplier (= 0.75) × max(|u₁|) × s₁` 
 ✅ SVD produces proper singular values (s₁ ≈ 60+ instead of ≈1)
 ✅ Alpha slider shows meaningful range for sparsity testing
-✅ Ready for biomarker detection with various alpha values
+✅ Validated ability to detect signal rows with different alphas
+✅ For a given test dataset, alphaMax is a function of alphaMaxMultiplier
 
 ### Code Quality
 ✅ Removed duplicate function definitions
@@ -122,9 +123,7 @@ For test data with SNR = -20 dB:
 - ✅ **Prepared for eFDR permutation analysis**
 
 ## Next Steps
-1. Test SSVD-R1 algorithm with various alpha values (0.5, 2.0, 5.0)
-2. Verify biomarker detection accuracy
-3. Implement eFDR estimation via permutation testing
-4. Compare results with theoretical expectations
+1. Implement eFDR estimation via permutation testing
+2. Generate supporting files, tables and charts
 
 This fix resolves the core mathematical calculation issue and enables proper sparse biomarker discovery with the SSVD-R1 algorithm.
