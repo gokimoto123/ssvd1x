@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Input Changes</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .test-section { margin: 20px 0; padding: 20px; border: 1px solid #ccc; }
+        input { padding: 8px; margin: 10px; width: 200px; }
+        .no-arrows {
+            -moz-appearance: textfield;
+            -webkit-appearance: none;
+            appearance: none;
+        }
+        .no-arrows::-webkit-outer-spin-button,
+        .no-arrows::-webkit-inner-spin-button {
+            -webkit-appearance: none;
+            margin: 0;
+        }
+    </style>
+</head>
+<body>
+    <h1>Test Input Field Changes</h1>
+    
+    <div class="test-section">
+        <h3>1. Maximum Alpha Input (should be user-editable)</h3>
+        <label>Maximum Alpha (αmax):</label><br>
+        <input type="text" value="6.713923" placeholder="Enter maximum alpha value">
+        <div style="margin-top: 10px; padding: 10px; background: #f5f5f5; font-size: 12px;">
+            <strong>Dynamic Equation:</strong><br>
+            αmax = 0.7500 × 0.1431 × 62.5676 = 6.713923<br>
+            <em>multiplier × max(|u₁|) × s₁</em>
+        </div>
+    </div>
+    
+    <div class="test-section">
+        <h3>2. Support Percentage Input (should have no arrows)</h3>
+        <label>Support Percentage (sprcnt):</label><br>
+        <input type="text" value="5" class="no-arrows" style="-moz-appearance: textfield; -webkit-appearance: none; appearance: none;">
+        <div style="margin-top: 10px; color: #666; font-size: 12px;">
+            Should be text input with no spinner arrows
+        </div>
+    </div>
+    
+    <div class="test-section">
+        <h3>3. Test Equation Update</h3>
+        <p>When user changes alphaMax to 10.0, equation should show:</p>
+        <div style="padding: 10px; background: #f5f5f5; font-size: 12px;">
+            <strong>Adjusted Calculation:</strong><br>
+            αmax = 1.1147 × 0.1431 × 62.5676 = 10.000000<br>
+            <em>multiplier × max(|u₁|) × s₁</em>
+        </div>
+        <p>Note: Multiplier calculated as 10.0 / (0.1431 × 62.5676) ≈ 1.1147</p>
+    </div>
+</body>
+</html>

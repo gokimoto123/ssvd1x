@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//Users/gokimoto/ssvd-r1-project-III/ssvd-r1/**)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

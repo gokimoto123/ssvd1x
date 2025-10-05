@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test eFDR Equation Formats</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .equation-box { 
+            margin: 20px 0; 
+            padding: 15px; 
+            background: #f5f5f5; 
+            border: 1px solid #ddd; 
+            font-family: monospace;
+            font-size: 12px;
+        }
+        .section { margin: 30px 0; }
+        .button-test {
+            margin: 30px 0;
+            padding: 12px 24px;
+            background: #4f46e5;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-weight: 500;
+        }
+    </style>
+</head>
+<body>
+    <h1>Test eFDR Equation Formats</h1>
+    
+    <div class="section">
+        <h3>1. AlphaMax Equation (should be formatted exactly as requested)</h3>
+        <div class="equation-box">
+            <strong>Default Calculation:</strong><br>
+            AlphaMax = Multiplier × max(|u1|) × s1 = 0.7500 × 0.1431 × 62.5676<br>
+            = 6.713909
+        </div>
+        <p><strong>✓ Format:</strong> First line has the formula with values, second line has the result</p>
+    </div>
+    
+    <div class="section">
+        <h3>2. nsupp Equation (should use 0.01 factor)</h3>
+        <div class="equation-box">
+            <strong>Estimated Support Size (nsupp):</strong><br>
+            nsupp = 0.01 × 5 × 1000 = 0.01 × 5 × 1000<br>
+            = 50
+        </div>
+        <p><strong>✓ Format:</strong> Shows the 0.01 factor explicitly, calculates to 50</p>
+    </div>
+    
+    <div class="section">
+        <h3>3. Button Text Test</h3>
+        <button class="button-test">Start eFDR Analysis</button>
+        <p><strong>✓ Text:</strong> Should read "Start eFDR Analysis" for eFDR mode</p>
+    </div>
+    
+    <div class="section">
+        <h3>4. Spacing Test</h3>
+        <p>Button should have mt-8 class for proper spacing from content above</p>
+        <div style="height: 100px; background: #e5e7eb; border: 1px dashed #9ca3af; display: flex; align-items: center; justify-content: center;">
+            Content area
+        </div>
+        <div style="margin-top: 32px; text-align: right;">
+            <button class="button-test">Start eFDR Analysis</button>
+        </div>
+        <p><strong>✓ Spacing:</strong> Adequate space between content and button</p>
+    </div>
+</body>
+</html>
