@@ -1,6 +1,0 @@
-# Redirect all requests to the main application file
-/*    /current_optimized.html   200
-
-# Handle specific routes if needed in the future
-/app/*    /current_optimized.html   200
-/analysis/*    /current_optimized.html   200

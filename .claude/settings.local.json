@@ -1,7 +1,9 @@
 {
   "permissions": {
     "allow": [
-      "Read(//Users/gokimoto/ssvd-r1-project-III/ssvd-r1/**)"
+      "Read(//Users/gokimoto/ssvd-r1-project-III/ssvd-r1/**)",
+      "Bash(\"/Applications/GitHub Desktop.app/Contents/Resources/app/git/bin/git\" rm netlify.toml _redirects index.html .DS_Store)",
+      "Bash(\"/Applications/GitHub Desktop.app/Contents/Resources/app/git/bin/git\" rm -rf deploy {backups})"
     ],
     "deny": [],
     "ask": []

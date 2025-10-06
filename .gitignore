@@ -29,8 +29,44 @@ Thumbs.db
 
 # Session summaries and temporary files
 SESSION_*.md
+NEXT_SESSION_*.md
 *.tmp
 *.bak
+
+# Backup files
+current_optimized_backup_*.html
+current_optimized_2025*.html
+*_backup.html
+*_WORKING_*.html
+*_FIXED_*.html
+
+# Planning and documentation files
+EFDR_OPTIMIZATION_*.md
+OPTIMIZATION_PLAN_*.md
+PERSISTENT_DATA_*.md
+ALPHA_SPACING_*.md
+TESTING_INSTRUCTIONS.md
+PROJECT_STRUCTURE.md
+
+# Test files
+test_*.html
+test_*.js
+validation_*.js
+
+# Screenshots and images
+*.png
+Screenshot*.png
+
+# Deployment files (unless using)
+netlify.toml
+_redirects
+deploy/
+
+# Data files
+*.csv
+
+# System files
+.DS_Store
 
 # Python
 __pycache__/
