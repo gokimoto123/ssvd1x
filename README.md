@@ -4,7 +4,7 @@ A web-based application for **Sparse Singular Value Decomposition (SSVD)** with 
 
 ## Overview
 
-SSVD1x is a scientific research tool that identifies a small subset of matrix rows (variables) from thousands that contain a common signal of interest using L1 regularization. The tool is particularly useful for high-dimensional data analysis where the number of variables greatly exceeds the number of samples.
+SSVD1x is a research tool that identifies a small subset of matrix rows (variables) from thousands that contain a common signal of interest using L1 regularization. The tool is particularly useful for high-dimensional data analysis where the number of variables greatly exceeds the number of samples.
 
 ## Features
 
