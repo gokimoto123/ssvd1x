@@ -50,10 +50,10 @@ npm run serve
 - `permuteMatrixRows()`: Matrix row permutation for null hypothesis testing
 
 ### Mathematical Background
-The application implements sparse SVD for biomarker discovery in P × N data matrices where:
+The application implements sparse SVD factorizations of rank1 for biomarker discovery in P × N data matrices where:
 - P >> N (many more variables than samples)
 - K << P (sparse embedded signal)
-- Typical applications include genomics, proteomics, and medical diagnostics
+- Typical applications include genomics, proteomics, medical diagnostics, and machine learning
 
 ## File Structure
 
