@@ -4,16 +4,21 @@ A web-based application for **Sparse Singular Value Decomposition (SSVD)** with 
 
 ## Overview
 
-SSVD1x is a research tool that identifies a small subset of matrix rows (variables) from thousands that contain a common signal of interest using L1 regularization. The tool is particularly useful for high-dimensional data analysis where the number of variables greatly exceeds the number of samples.
+SSVD1x is a scientific research tool that identifies a small subset of matrix rows (variables) from thousands that contain a common signal of interest using L1 regularization. The tool is particularly useful for high-dimensional data analysis where the number of variables greatly exceeds the number of samples.
 
 ## Features
 
 - **Data Upload**: Support for CSV and other tabular data formats
 - **SSVD Algorithm**: Sparse matrix factorization with L1 regularization
-- **eFDR Analysis**: Empirical False Discovery Rate estimation using permutation testing
-- **Alpha Path Analysis**: Detection analysis across multiple sparsity parameters
-- **Interactive Visualizations**: Real-time parameter adjustment and result visualization
-- **Export Capabilities**: Download results in various formats
+- **Dual Analysis Modes**:
+  - **N-Alpha Analysis**: Fast detection analysis across multiple alpha values without eFDR estimation
+  - **eFDR Analysis**: Full statistical validation with permutation-based False Discovery Rate estimation
+- **Interactive Visualizations**: Heatmaps with hierarchical clustering, detection charts, alpha path analysis
+- **Comprehensive Export Suite**:
+  - PDF reports with analysis parameters and results
+  - Excel workbooks with detection tables
+  - PNG charts (composite heatmaps, dendrograms, detection plots)
+- **Mathematical Validation**: Built-in regression test suite for algorithm verification
 
 ## Quick Start
 
@@ -50,10 +55,10 @@ npm run serve
 - `permuteMatrixRows()`: Matrix row permutation for null hypothesis testing
 
 ### Mathematical Background
-The application implements sparse SVD factorizations of rank1 for biomarker discovery in P × N data matrices where:
+The application implements sparse SVD for biomarker discovery in P × N data matrices where:
 - P >> N (many more variables than samples)
 - K << P (sparse embedded signal)
-- Typical applications include genomics, proteomics, medical diagnostics, and machine learning
+- Typical applications include genomics, proteomics, and medical diagnostics
 
 ## File Structure
 
@@ -93,11 +98,21 @@ The application includes a comprehensive mathematical regression test suite acce
 - SSVD sparsity constraints
 - Performance benchmarks
 
+## Release Notes
+
+**Version 1.0.0 (October 2025)**
+- Stable production release
+- Complete export functionality (PDF, Excel, PNG)
+- Dual analysis modes (N-Alpha and eFDR)
+- Hierarchical clustering visualization
+- Mathematical regression test suite
+- Comprehensive UI with tooltips and consistent navigation
+
 ## Known Issues
 
 - Git operations may require Xcode Command Line Tools reinstallation on macOS
-- Large matrices (>1000×100) may experience performance degradation
-- Context window limitations in development environment
+- Hierarchical clustering may trigger browser "Page Unresponsive" warnings for matrices >1000 rows (acceptable, warning resolves quickly)
+- eFDR analysis is computationally intensive for large permutation counts
 
 ## Contributing
 
