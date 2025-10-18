@@ -677,7 +677,8 @@
             
             const alphaValues = [];
             for (let i = 0; i < Nalpha; i++) {
-                const alpha = alpha0 + (alphaMax - alpha0) * i / (Nalpha - 1);
+                // Handle single alpha case (Nalpha = 1) to avoid division by zero
+                const alpha = Nalpha === 1 ? alpha0 : alpha0 + (alphaMax - alpha0) * i / (Nalpha - 1);
                 alphaValues.push(alpha);
             }
 
@@ -955,6 +956,175 @@
             return fdrWorker;
         };
 
+        // Single-Alpha eFDR: Run permutations only (original SSVD already cached from N-alpha)
+        const runPermutationsForAlpha = async function({ matrix, alpha, originalDetections, Nperm, nsupp, onProgress, isCancelled }) {
+            console.log(`Running permutations for α = ${alpha.toFixed(6)}, originalDetections = ${originalDetections}, Nperm = ${Nperm}, nsupp = ${nsupp}`);
+
+            // Defensive checks
+            if (!matrix || !matrix.length) {
+                throw new Error('Matrix is undefined or empty');
+            }
+            if (!alpha || isNaN(alpha)) {
+                throw new Error(`Invalid alpha value: ${alpha}`);
+            }
+            if (originalDetections === undefined || originalDetections < 0) {
+                throw new Error(`Invalid originalDetections: ${originalDetections}`);
+            }
+            if (!nsupp || nsupp <= 0) {
+                throw new Error(`Invalid nsupp value: ${nsupp}`);
+            }
+
+            const P = matrix.length;
+            const pi0 = (P - nsupp) / P;
+
+            console.log(`Matrix: ${P}x${matrix[0].length}, π₀ = ${pi0.toFixed(4)}`);
+
+            // Calculate alphaMax for adaptive parameters
+            const alphaMax = 0.01; // Fallback estimate
+            const alphaRatio = alpha / alphaMax;
+
+            let totalPermDetections = 0;
+            const totalRuns = Nperm;
+            let completedRuns = 0;
+
+            // Use smaller batch size for more responsive cancellation (2 permutations at a time)
+            const batchSize = 2;
+            console.log(`Processing ${Nperm} permutations in batches of ${batchSize} (responsive cancellation)`);
+            console.log(`onProgress callback exists: ${!!onProgress}`);
+
+            // Initialize progress reporting
+            if (onProgress) {
+                console.log('📊 Initializing progress: 0/' + totalRuns);
+                onProgress(0, totalRuns, 'Starting permutation testing...');
+            }
+
+            // Process permutations in batches for parallelism
+            for (let batchStart = 0; batchStart < Nperm; batchStart += batchSize) {
+                // Check for cancellation
+                if (isCancelled && isCancelled()) {
+                    console.log('Permutation testing cancelled by user');
+                    throw new Error('Analysis cancelled by user');
+                }
+
+                const batchEnd = Math.min(batchStart + batchSize, Nperm);
+                const currentBatchSize = batchEnd - batchStart;
+                const batchNumber = Math.floor(batchStart / batchSize) + 1;
+                const totalBatches = Math.ceil(Nperm / batchSize);
+
+                console.log(`Starting batch ${batchNumber}/${totalBatches} (perms ${batchStart + 1}-${batchEnd})`);
+
+                // Process permutations with individual progress updates
+                const batchPromises = [];
+                for (let perm = batchStart; perm < batchEnd; perm++) {
+                    batchPromises.push(
+                        (async () => {
+                            try {
+                                // Check for cancellation before starting this permutation
+                                if (isCancelled && isCancelled()) {
+                                    console.log(`Permutation ${perm + 1} cancelled before execution`);
+                                    return 0; // Return 0 detections for cancelled permutation
+                                }
+
+                                const permutedMatrix = permuteMatrixRows(matrix);
+
+                                // Adaptive parameters based on alpha ratio
+                                const adaptiveMaxIter =
+                                    alphaRatio < 0.05 ? 400 :
+                                    alphaRatio < 0.2 ? 350 :
+                                    alphaRatio < 0.5 ? 250 :
+                                    alphaRatio < 0.75 ? 150 :
+                                    50;
+
+                                const adaptiveTolerance =
+                                    alphaRatio < 0.2 ? 0.01 :
+                                    alphaRatio < 0.5 ? 0.005 :
+                                    0.001;
+
+                                const permResult = await SSVDR1Algorithm({
+                                    matrix: permutedMatrix,
+                                    alpha,
+                                    maxIter: adaptiveMaxIter,
+                                    tolerance: adaptiveTolerance
+                                });
+
+                                // Check for cancellation after permutation completes
+                                if (isCancelled && isCancelled()) {
+                                    console.log(`Permutation ${perm + 1} cancelled after completion`);
+                                    return 0; // Don't count this result
+                                }
+
+                                const permDetections = permResult.u.filter(val => Math.abs(val) > 1e-8).length;
+
+                                // Update progress AFTER permutation completes (only on 5% increments)
+                                completedRuns++;
+                                if (onProgress) {
+                                    const currentPercent = Math.floor((completedRuns / totalRuns) * 100);
+                                    const previousPercent = Math.floor(((completedRuns - 1) / totalRuns) * 100);
+
+                                    // Report if we crossed a 5% threshold OR if we're at 100%
+                                    const currentBucket = Math.floor(currentPercent / 5);
+                                    const previousBucket = Math.floor(previousPercent / 5);
+
+                                    if (currentBucket > previousBucket || completedRuns === totalRuns) {
+                                        const progressMessage = `${currentPercent}% complete (${completedRuns}/${totalRuns} permutations)`;
+                                        console.log(`🔄 Calling onProgress: ${completedRuns}/${totalRuns} (${currentPercent}%)`);
+                                        onProgress(completedRuns, totalRuns, progressMessage);
+                                    }
+                                }
+
+                                return permDetections;
+                            } catch (error) {
+                                console.error(`Permutation ${perm + 1} in batch ${batchNumber} failed:`, error);
+                                return 0;
+                            }
+                        })()
+                    );
+                }
+
+                // Wait for all permutations in batch to complete
+                const batchResults = await Promise.all(batchPromises);
+
+                // Check for cancellation immediately after batch completes
+                if (isCancelled && isCancelled()) {
+                    console.log(`Analysis cancelled after batch ${batchNumber}/${totalBatches} completed`);
+                    throw new Error('Analysis cancelled by user');
+                }
+
+                // Sum up detections from this batch
+                const batchDetections = batchResults.reduce((sum, val) => sum + val, 0);
+                totalPermDetections += batchDetections;
+
+                console.log(`Batch ${batchNumber}/${totalBatches} completed: ${batchDetections} total detections from ${currentBatchSize} permutations`);
+
+                // Small delay to allow UI update (also check cancellation during delay)
+                await new Promise(resolve => setTimeout(resolve, 10));
+
+                // Final check after UI delay
+                if (isCancelled && isCancelled()) {
+                    console.log(`Analysis cancelled during UI delay after batch ${batchNumber}/${totalBatches}`);
+                    throw new Error('Analysis cancelled by user');
+                }
+            }
+
+            // Calculate eFDR
+            const avgPermDetections = totalPermDetections / Nperm;
+            const expectedFalsePos = pi0 * avgPermDetections;
+            const fdr = originalDetections > 0 ? expectedFalsePos / originalDetections : 0;
+            const eFDR = Math.min(fdr, 1.0); // Keep as fraction (0-1), not percentage
+
+            console.log(`eFDR Calculation: avgPerm=${avgPermDetections.toFixed(2)}, expectedFP=${expectedFalsePos.toFixed(2)}, eFDR=${(eFDR*100).toFixed(2)}%`);
+
+            return {
+                eFDR,
+                pi0,
+                avgPermDetections,
+                Nperm,
+                nsupp,
+                originalDetections, // Include for display calculations
+                alpha // Include alpha for complete display
+            };
+        };
+
         // Web Worker-based FDR analysis function
         const runFDRAnalysisWorker = async function(params) {
             return new Promise((resolve, reject) => {
@@ -1195,6 +1365,15 @@
         // PHASE 3: DATA REVIEW - STATISTICS AND VISUALIZATIONS
         // ===================================================================
 
+        // Adaptive decimal formatting for small values (handles preprocessed gene expression data)
+        const formatSmallValue = (val) => {
+            const absVal = Math.abs(val);
+            if (absVal === 0) return "0.000";
+            if (absVal < 0.001) return val.toExponential(3);  // e.g., "1.234e-4"
+            if (absVal < 1) return val.toFixed(6);             // e.g., "0.000123"
+            return val.toFixed(3);                              // e.g., "1.234"
+        };
+
         // Calculate comprehensive matrix statistics
         const calculateMatrixStatistics = function(matrix) {
             const P = matrix.length;
@@ -1244,7 +1423,8 @@
             return {
                 P, N, min, max, mean, stdDev,
                 rowMeans, rowStdDevs,
-                columnMeans, columnStdDevs
+                columnMeans, columnStdDevs,
+                frobeniusNorm: calculateFrobeniusNorm(matrix)
             };
         };
 
@@ -1715,8 +1895,13 @@
                         clearFDRProgress(true); // Clear saved progress and report final time
                     }
                 } catch (error) {
-                    console.error('FDR Analysis failed:', error);
-                    alert(`FDR Analysis failed: ${error.message}`);
+                    // Only show alert if not cancelled
+                    if (!isCancelled && !error.message?.includes('cancelled')) {
+                        console.error('FDR Analysis failed:', error);
+                        alert(`FDR Analysis failed: ${error.message}`);
+                    } else {
+                        console.log('🛑 FDR Analysis was cancelled - suppressing error:', error.message);
+                    }
                 } finally {
                     setIsRunning(false);
                     setIsCancelled(false);
@@ -1758,7 +1943,7 @@
                                 <span>100</span>
                             </div>
                             <p className="text-xs text-gray-600">
-                                Number of alpha values to test between 0 and {matrixInfo.alphaMax.toFixed(4)}
+                                Number of alpha values to test between 0 and {matrixInfo.alphaMax.toFixed(6)}
                             </p>
                         </div>
 
@@ -1825,7 +2010,7 @@
                             </div>
                             <div>
                                 <span className="text-gray-600">Alpha range:</span>
-                                <span className="font-medium ml-2">0 → {matrixInfo.alphaMax.toFixed(4)}</span>
+                                <span className="font-medium ml-2">0 → {matrixInfo.alphaMax.toFixed(6)}</span>
                             </div>
                             <div>
                                 <span className="text-gray-600">π₀:</span>
@@ -1967,6 +2152,7 @@
                             <button
                                 onClick={runAnalysis}
                                 className="px-6 py-3 bg-indigo-600 text-white rounded-md font-medium hover:bg-indigo-700 transition-colors"
+                                title="Run permutation-based False Discovery Rate analysis to estimate detection reliability"
                             >
                                 Run FDR Analysis
                             </button>
@@ -3180,9 +3366,9 @@ Click to select`}
                 <div className="bg-white rounded-lg shadow-md p-6 mb-6">
                     <h2 className="text-xl mb-4 flex items-center gap-2">
                         <span className="text-blue-600">📊</span>
-                        <span className="font-bold">Data:</span> {filename}
+                        <span className="font-bold">Data Overview:</span> {filename}
                     </h2>
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
                         {/* Dimensions */}
                         <div className="bg-blue-50 p-4 rounded-lg">
                             <div className="text-sm text-blue-600 font-medium">Dimensions</div>
@@ -3194,23 +3380,34 @@ Click to select`}
                         <div className="bg-green-50 p-4 rounded-lg">
                             <div className="text-sm text-green-600 font-medium">Range</div>
                             <div className="text-lg font-bold text-green-900">
-                                [{statistics.min?.toFixed(2)}, {statistics.max?.toFixed(2)}]
+                                [{formatSmallValue(statistics.min)}, {formatSmallValue(statistics.max)}]
                             </div>
                             <div className="text-xs text-green-600 mt-1">Min, Max values</div>
                         </div>
 
                         {/* Mean */}
                         <div className="bg-purple-50 p-4 rounded-lg">
-                            <div className="text-sm text-purple-600 font-medium">Overall Mean</div>
-                            <div className="text-lg font-bold text-purple-900">{statistics.mean?.toFixed(3)}</div>
+                            <div className="text-sm text-purple-600 font-medium">Global Mean</div>
+                            <div className="text-lg font-bold text-purple-900">{formatSmallValue(statistics.mean)}</div>
                             <div className="text-xs text-purple-600 mt-1">All elements</div>
                         </div>
 
                         {/* Std Dev */}
                         <div className="bg-orange-50 p-4 rounded-lg">
-                            <div className="text-sm text-orange-600 font-medium">Overall Std Dev</div>
-                            <div className="text-lg font-bold text-orange-900">{statistics.stdDev?.toFixed(3)}</div>
+                            <div className="text-sm text-orange-600 font-medium">Global Std Dev</div>
+                            <div className="text-lg font-bold text-orange-900">{formatSmallValue(statistics.stdDev)}</div>
                             <div className="text-xs text-orange-600 mt-1">All elements</div>
+                        </div>
+
+                        {/* Frobenius Norm */}
+                        <div className="bg-cyan-50 p-4 rounded-lg">
+                            <div className="text-sm text-cyan-600 font-medium">Frobenius Norm</div>
+                            <div className="text-lg font-bold text-cyan-900">
+                                {statistics.frobeniusNorm?.toFixed(4)}
+                            </div>
+                            <div className="text-xs text-cyan-600 mt-1">
+                                {Math.abs((statistics.frobeniusNorm ?? 0) - 1.0) < 0.01 ? '✓ Normalized' : 'Not normalized'}
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -3244,13 +3441,13 @@ Click to select`}
                         {parameters.alpha0 !== undefined && (
                             <div>
                                 <span className="text-gray-500">Alpha Min:</span>
-                                <div className="font-medium text-gray-900">{parameters.alpha0.toFixed(4)}</div>
+                                <div className="font-medium text-gray-900">{parameters.alpha0.toFixed(6)}</div>
                             </div>
                         )}
                         {parameters.alphaMax !== undefined && (
                             <div>
                                 <span className="text-gray-500">Alpha Max:</span>
-                                <div className="font-medium text-gray-900">{parameters.alphaMax.toFixed(4)}</div>
+                                <div className="font-medium text-gray-900">{parameters.alphaMax.toFixed(6)}</div>
                             </div>
                         )}
                         {parameters.Nalpha !== undefined && (
@@ -3334,7 +3531,22 @@ Click to select`}
             
             // Export functionality for multi-alpha results
             const [showMultiExportMenu, setShowMultiExportMenu] = useState(false);
-            
+            const exportMenuRef = useRef(null);
+
+            // Click-outside handler to close export menu
+            useEffect(() => {
+                const handleClickOutside = (event) => {
+                    if (exportMenuRef.current && !exportMenuRef.current.contains(event.target)) {
+                        setShowMultiExportMenu(false);
+                    }
+                };
+
+                if (showMultiExportMenu) {
+                    document.addEventListener('mousedown', handleClickOutside);
+                    return () => document.removeEventListener('mousedown', handleClickOutside);
+                }
+            }, [showMultiExportMenu]);
+
             const handleExportMultiAlphaResults = () => {
                 try {
                     console.log('🔄 Starting multi-alpha export...');
@@ -3444,14 +3656,40 @@ Click to select`}
                                     {results.analysisType === 'efdr' ? 'eFDR Table' : 'N-Alpha Table'}
                                 </h2>
                                 <p className="text-sm text-gray-600 mt-1">
-                                    Analyzed {results.alphaValues.length} alpha values from {results.alphaValues[0].toFixed(4)} to {results.alphaValues[results.alphaValues.length - 1].toFixed(4)}
+                                    Analyzed {results.alphaValues.length} alpha values from {results.alphaValues[0].toFixed(6)} to {results.alphaValues[results.alphaValues.length - 1].toFixed(6)}
                                 </p>
                             </div>
-                            <div className="flex space-x-3">
-                                <div className="relative">
+                            <div className="flex items-center gap-3">
+                                {/* Back Button */}
+                                <button
+                                    onClick={onNewAnalysis}
+                                    className="bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 text-white px-4 py-2 rounded-lg font-medium text-sm flex items-center gap-2 transition-colors"
+                                    title="Back to analysis selection"
+                                >
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                                    </svg>
+                                    Back
+                                </button>
+
+                                {/* Reset Button */}
+                                <button
+                                    onClick={onResetToOriginal}
+                                    className="bg-gradient-to-r from-gray-500 to-gray-600 hover:from-gray-600 hover:to-gray-700 text-white px-4 py-2 rounded-lg font-medium text-sm flex items-center gap-2 transition-colors"
+                                    title="Reset and upload new data"
+                                >
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                    </svg>
+                                    Reset
+                                </button>
+
+                                {/* Export Button */}
+                                <div className="relative" ref={exportMenuRef}>
                                     <button
                                         onClick={() => setShowMultiExportMenu(!showMultiExportMenu)}
-                                        className="px-4 py-2 bg-gradient-to-r from-green-600 to-blue-600 text-white rounded-md hover:from-green-700 hover:to-blue-700 transition-colors flex items-center gap-2"
+                                        className="bg-gradient-to-r from-green-600 to-blue-600 hover:from-green-700 hover:to-blue-700 text-white px-4 py-2 rounded-lg font-medium text-sm flex items-center gap-2 transition-colors"
+                                        title="Export analysis results"
                                     >
                                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
@@ -3461,7 +3699,7 @@ Click to select`}
                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                                         </svg>
                                     </button>
-                                    
+
                                     {showMultiExportMenu && (
                                         <div className="absolute right-0 mt-2 w-56 bg-white rounded-lg shadow-xl border border-gray-200 z-50">
                                             <div className="p-3 border-b border-gray-200">
@@ -3498,18 +3736,6 @@ Click to select`}
                                         </div>
                                     )}
                                 </div>
-                                <button
-                                    onClick={onNewAnalysis}
-                                    className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
-                                >
-                                    New Analysis
-                                </button>
-                                <button
-                                    onClick={onResetToOriginal}
-                                    className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors"
-                                >
-                                    Reset Data
-                                </button>
                             </div>
                         </div>
                         
@@ -3771,22 +3997,33 @@ Click to select`}
                     <div className="bg-white rounded-lg shadow-md p-6">
                         <div className="flex justify-between items-center mb-6">
                             <h2 className="text-xl font-semibold">Choose Analysis Type</h2>
-                            <div className="flex space-x-3">
+                            <div className="flex items-center gap-3">
+                                {/* Back Button */}
                                 <button
                                     onClick={onBackToReview}
-                                    className="px-4 py-2 border border-slate-300 text-slate-600 bg-slate-50 rounded-md hover:bg-blue-50 hover:border-blue-300 hover:text-blue-700 transition-colors"
+                                    className="bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 text-white px-4 py-2 rounded-lg font-medium text-sm flex items-center gap-2 transition-colors"
+                                    title="Back to data review"
                                 >
-                                    ← Back
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                                    </svg>
+                                    Back
                                 </button>
+
+                                {/* Reset Button */}
                                 <button
                                     onClick={() => {
                                         if (confirm('Reset all data and return to file upload? This will clear all analysis results.')) {
                                             onReset();
                                         }
                                     }}
-                                    className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors"
+                                    className="bg-gradient-to-r from-gray-500 to-gray-600 hover:from-gray-600 hover:to-gray-700 text-white px-4 py-2 rounded-lg font-medium text-sm flex items-center gap-2 transition-colors"
+                                    title="Reset and upload new data"
                                 >
-                                    🔄 Reset
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                    </svg>
+                                    Reset
                                 </button>
                             </div>
                         </div>
@@ -3874,16 +4111,16 @@ Click to select`}
         const MatrixDataReview = ({ matrix, matrixInfo, statistics, onProceedToAnalysis, onReset }) => {
             return (
                 <div className="space-y-6">
-                    {/* Basic Matrix Overview */}
+                    {/* Basic Data Overview */}
                     <div className="bg-white rounded-lg shadow-md p-6">
                         <div className="mb-4">
-                            <h2 className="text-2xl font-bold">Matrix Overview</h2>
+                            <h2 className="text-2xl font-bold">Data Overview</h2>
                             <p className="text-sm text-gray-600 flex items-center gap-1 mt-1">
                                 <span className="text-blue-600">📊</span>
                                 Data: {matrixInfo.filename}
                             </p>
                         </div>
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
                             <div className="bg-blue-50 p-4 rounded-lg">
                                 <div className="text-sm text-blue-600 font-medium">Dimensions</div>
                                 <div className="text-2xl font-bold text-blue-900">{statistics.P} × {statistics.N}</div>
@@ -3891,18 +4128,27 @@ Click to select`}
                             </div>
                             <div className="bg-green-50 p-4 rounded-lg">
                                 <div className="text-sm text-green-600 font-medium">Range</div>
-                                <div className="text-lg font-bold text-green-900">[{statistics.min.toFixed(2)}, {statistics.max.toFixed(2)}]</div>
+                                <div className="text-lg font-bold text-green-900">[{formatSmallValue(statistics.min)}, {formatSmallValue(statistics.max)}]</div>
                                 <div className="text-xs text-green-600 mt-1">Min, Max values</div>
                             </div>
                             <div className="bg-purple-50 p-4 rounded-lg">
-                                <div className="text-sm text-purple-600 font-medium">Overall Mean</div>
-                                <div className="text-lg font-bold text-purple-900">{statistics.mean.toFixed(3)}</div>
+                                <div className="text-sm text-purple-600 font-medium">Global Mean</div>
+                                <div className="text-lg font-bold text-purple-900">{formatSmallValue(statistics.mean)}</div>
                                 <div className="text-xs text-purple-600 mt-1">All elements</div>
                             </div>
                             <div className="bg-orange-50 p-4 rounded-lg">
-                                <div className="text-sm text-orange-600 font-medium">Overall Std Dev</div>
-                                <div className="text-lg font-bold text-orange-900">{statistics.stdDev.toFixed(3)}</div>
+                                <div className="text-sm text-orange-600 font-medium">Global Std Dev</div>
+                                <div className="text-lg font-bold text-orange-900">{formatSmallValue(statistics.stdDev)}</div>
                                 <div className="text-xs text-orange-600 mt-1">All elements</div>
+                            </div>
+                            <div className="bg-cyan-50 p-4 rounded-lg">
+                                <div className="text-sm text-cyan-600 font-medium">Frobenius Norm</div>
+                                <div className="text-lg font-bold text-cyan-900">
+                                    {statistics.frobeniusNorm?.toFixed(4)}
+                                </div>
+                                <div className="text-xs text-cyan-600 mt-1">
+                                    {Math.abs((statistics.frobeniusNorm ?? 0) - 1.0) < 0.01 ? '✓ Normalized' : 'Not normalized'}
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -4119,9 +4365,9 @@ Click to select`}
                     {/* Preprocessed Data Statistics */}
                     {showPreprocessedStats && preprocessingResults && (
                         <>
-                            {/* Basic Matrix Overview */}
+                            {/* Basic Data Overview */}
                             <div className="bg-white rounded-lg shadow-md p-6">
-                                <h2 className="text-2xl font-bold mb-4">Preprocessed Matrix Overview</h2>
+                                <h2 className="text-2xl font-bold mb-4">Preprocessed Data Overview</h2>
                                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                                     <div className="bg-blue-50 p-4 rounded-lg">
                                         <div className="text-sm text-blue-600 font-medium">Dimensions</div>
@@ -4138,14 +4384,14 @@ Click to select`}
                                         <div className="text-xs text-green-600 mt-1">Min, Max values</div>
                                     </div>
                                     <div className="bg-purple-50 p-4 rounded-lg">
-                                        <div className="text-sm text-purple-600 font-medium">Overall Mean</div>
+                                        <div className="text-sm text-purple-600 font-medium">Global Mean</div>
                                         <div className="text-lg font-bold text-purple-900">
                                             {preprocessingResults.statistics.mean.toExponential(2)}
                                         </div>
                                         <div className="text-xs text-purple-600 mt-1">Should be ≈0</div>
                                     </div>
                                     <div className="bg-orange-50 p-4 rounded-lg">
-                                        <div className="text-sm text-orange-600 font-medium">Overall Std Dev</div>
+                                        <div className="text-sm text-orange-600 font-medium">Global Std Dev</div>
                                         <div className="text-lg font-bold text-orange-900">
                                             {preprocessingResults.statistics.stdDev.toFixed(4)}
                                         </div>
@@ -4365,11 +4611,11 @@ Click to select`}
                             </div>
                             <div>
                                 <span className="text-gray-500">Alpha Min:</span>
-                                <div className="font-medium text-gray-900">{minAlpha.toFixed(4)}</div>
+                                <div className="font-medium text-gray-900">{minAlpha.toFixed(6)}</div>
                             </div>
                             <div>
                                 <span className="text-gray-500">Alpha Max:</span>
-                                <div className="font-medium text-gray-900">{alphaMax?.toFixed(4) || 'N/A'}</div>
+                                <div className="font-medium text-gray-900">{alphaMax?.toFixed(6) || 'N/A'}</div>
                             </div>
                             <div>
                                 <span className="text-gray-500">N Alpha:</span>
@@ -4736,12 +4982,12 @@ Click to select`}
             );
         };
 
-        // Heatmap Chart Component - Full 191x368 solution submatrix using Canvas
+        // Heatmap Chart Component - Clustered solution submatrix using Canvas with dendrograms
         const HeatmapChart = ({ ssvdResults, matrix, analysisMode }) => {
             const canvasRef = React.useRef(null);
-            const canvasRef2 = React.useRef(null); // Second canvas for rank-1 reconstruction
+            const rowDendrogramRef = React.useRef(null);
+            const colDendrogramRef = React.useRef(null);
             const [isRendering, setIsRendering] = React.useState(false);
-            const [isRenderingRank1, setIsRenderingRank1] = React.useState(false);
 
             if (!ssvdResults || !matrix || !ssvdResults.detectedIndices || ssvdResults.detectedIndices.length === 0) {
                 return (
@@ -4758,20 +5004,23 @@ Click to select`}
             const Q = detectedIndices.length; // 191 detections
             const N = matrix[0].length;       // 368 samples
             
-            // Canvas dimensions for full heatmap - increased width for better viewing
-            // Ensure minimum dimensions for visibility
-            const minHeight = 200; // Minimum 200px height for visibility
-            const minWidth = 600;  // Increased minimum width for better visibility
+            // Canvas dimensions - reduced for compact display
+            const minHeight = 150; // Reduced minimum height
+            const minWidth = 400;  // Reduced minimum width
 
-            // Calculate dimensions with minimums - increased max width to 1200px
-            const canvasWidth = Math.max(minWidth, Math.min(1200, N * 3));  // Min 600px, Max 1200px, 3px per sample
-            const canvasHeight = Math.max(minHeight, Math.min(600, Q * 4)); // Min 200px, Max 600px, 4px per detection for better visibility
+            // Dendrogram dimensions
+            const rowDendrogramWidth = 80;  // Width for row dendrogram on left
+            const colDendrogramHeight = 60; // Height for column dendrogram on top
+
+            // Calculate dimensions - smaller overall size
+            const canvasWidth = Math.max(minWidth, Math.min(800, N * 2));   // Min 400px, Max 800px, 2px per sample
+            const canvasHeight = Math.max(minHeight, Math.min(300, Q * 2)); // Min 150px, Max 300px, 2px per detection
             const cellWidth = canvasWidth / N;
             const cellHeight = canvasHeight / Q;
 
-            // Extract full submatrix for all 191 detections x 368 samples
+            // Extract full submatrix for all detections x samples
             const submatrix = detectedIndices.map(rowIdx => matrix[rowIdx]);
-            
+
             // Calculate z-scores for color mapping
             const zScoredMatrix = submatrix.map(row => {
                 const mean = row.reduce((sum, val) => sum + val, 0) / row.length;
@@ -4779,6 +5028,73 @@ Click to select`}
                 const std = Math.sqrt(variance);
                 return row.map(val => std > 0 ? (val - mean) / std : 0);
             });
+
+            // Simple hierarchical clustering using correlation distance with dendrogram info
+            const clusterRows = (matrix) => {
+                const n = matrix.length;
+                const correlations = [];
+
+                // Calculate pairwise correlations
+                for (let i = 0; i < n; i++) {
+                    correlations[i] = [];
+                    for (let j = 0; j < n; j++) {
+                        if (i === j) {
+                            correlations[i][j] = 1;
+                        } else {
+                            const r1 = matrix[i];
+                            const r2 = matrix[j];
+                            const mean1 = r1.reduce((a, b) => a + b, 0) / r1.length;
+                            const mean2 = r2.reduce((a, b) => a + b, 0) / r2.length;
+                            let num = 0, den1 = 0, den2 = 0;
+                            for (let k = 0; k < r1.length; k++) {
+                                num += (r1[k] - mean1) * (r2[k] - mean2);
+                                den1 += (r1[k] - mean1) ** 2;
+                                den2 += (r2[k] - mean2) ** 2;
+                            }
+                            correlations[i][j] = den1 * den2 > 0 ? num / Math.sqrt(den1 * den2) : 0;
+                        }
+                    }
+                }
+
+                // Greedy ordering based on correlations with merge tracking
+                const ordered = [0];
+                const remaining = Array.from({length: n}, (_, i) => i).slice(1);
+                const merges = []; // Track merge order and distances
+
+                while (remaining.length > 0) {
+                    const last = ordered[ordered.length - 1];
+                    let bestIdx = 0;
+                    let bestCorr = -2;
+
+                    for (let i = 0; i < remaining.length; i++) {
+                        const corr = correlations[last][remaining[i]];
+                        if (corr > bestCorr) {
+                            bestCorr = corr;
+                            bestIdx = i;
+                        }
+                    }
+
+                    const nextItem = remaining[bestIdx];
+                    merges.push({
+                        index: ordered.length,
+                        item: nextItem,
+                        distance: 1 - bestCorr // Convert correlation to distance
+                    });
+
+                    ordered.push(nextItem);
+                    remaining.splice(bestIdx, 1);
+                }
+
+                return { ordered, merges };
+            };
+
+            // Cluster rows and columns
+            const rowCluster = clusterRows(zScoredMatrix);
+            const transposed = zScoredMatrix[0].map((_, colIdx) => zScoredMatrix.map(row => row[colIdx]));
+            const colCluster = clusterRows(transposed);
+
+            // Reorder matrix based on clustering
+            const clusteredMatrix = rowCluster.ordered.map(i => colCluster.ordered.map(j => zScoredMatrix[i][j]));
             
             // Color mapping function for Canvas (returns RGB array)
             const getColorRGB = (zScore) => {
@@ -4812,10 +5128,10 @@ Click to select`}
                 const imageData = ctx.createImageData(canvasWidth, canvasHeight);
                 const data = imageData.data;
 
-                // Render each cell as pixels
+                // Render each cell as pixels using clustered matrix
                 for (let rowIdx = 0; rowIdx < Q; rowIdx++) {
                     for (let colIdx = 0; colIdx < N; colIdx++) {
-                        const zScore = zScoredMatrix[rowIdx][colIdx];
+                        const zScore = clusteredMatrix[rowIdx][colIdx];
                         const [r, g, b] = getColorRGB(zScore);
 
                         // Calculate pixel coordinates
@@ -4842,118 +5158,84 @@ Click to select`}
                 setIsRendering(false);
             }, [detectedIndices, matrix]);
 
-            // Rank-1 reconstruction effect with sorted columns (for all analysis modes)
+            // Render row dendrogram (left side)
             React.useEffect(() => {
-                if (!ssvdResults.u || !ssvdResults.v || !ssvdResults.s) return;
+                const canvas = rowDendrogramRef.current;
+                if (!canvas || !rowCluster.merges) return;
 
-                const canvas2 = canvasRef2.current;
-                if (!canvas2) return;
+                const ctx = canvas.getContext('2d');
+                canvas.width = rowDendrogramWidth;
+                canvas.height = canvasHeight;
 
-                setIsRenderingRank1(true);
-                const ctx = canvas2.getContext('2d');
-                canvas2.width = canvasWidth;
-                canvas2.height = canvasHeight;
+                ctx.clearRect(0, 0, rowDendrogramWidth, canvasHeight);
+                ctx.strokeStyle = '#333';
+                ctx.lineWidth = 1;
 
-                // Calculate rank-1 reconstruction A1 = u1 * s1 * v1^T
-                // First, get the detected rows from u1
-                const u1_detected = detectedIndices.map(idx => ssvdResults.u[idx]);
-                const s1 = ssvdResults.s;
-                const v1 = ssvdResults.v;
+                // Draw dendrogram from merges
+                const maxDist = Math.max(...rowCluster.merges.map(m => m.distance), 0.01);
 
-                // Create sorted indices for v1 (ascending order)
-                const v1WithIndex = v1.map((val, idx) => ({ value: val, index: idx }));
-                const sortedV1 = [...v1WithIndex].sort((a, b) => a.value - b.value);
-                const sortedIndices = sortedV1.map(item => item.index);
+                rowCluster.merges.forEach((merge, idx) => {
+                    const y = (merge.index + 0.5) * cellHeight;
+                    const prevY = idx > 0 ? (merge.index - 0.5) * cellHeight : y;
+                    const x = rowDendrogramWidth - (merge.distance / maxDist) * (rowDendrogramWidth - 10);
 
-                // Compute rank-1 reconstruction for detected rows only, with sorted columns
-                // A1[i][j] = u1[i] * s1 * v1[sorted_j]
-                const rank1Matrix = [];
-                for (let i = 0; i < detectedIndices.length; i++) {
-                    const row = [];
-                    // Use sorted order for columns
-                    for (let j = 0; j < N; j++) {
-                        const originalColIdx = sortedIndices[j];
-                        row.push(u1_detected[i] * s1 * v1[originalColIdx]);
+                    // Draw horizontal line to merge point
+                    ctx.beginPath();
+                    ctx.moveTo(rowDendrogramWidth - 5, y);
+                    ctx.lineTo(x, y);
+                    ctx.stroke();
+
+                    // Draw vertical connector if not first
+                    if (idx > 0) {
+                        ctx.beginPath();
+                        ctx.moveTo(x, prevY);
+                        ctx.lineTo(x, y);
+                        ctx.stroke();
                     }
-                    rank1Matrix.push(row);
-                }
-
-                // Calculate z-scores for the rank-1 matrix
-                const zScoredRank1 = rank1Matrix.map(row => {
-                    const mean = row.reduce((sum, val) => sum + val, 0) / row.length;
-                    const variance = row.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / row.length;
-                    const std = Math.sqrt(variance);
-                    return row.map(val => std > 0 ? (val - mean) / std : 0);
                 });
+            }, [rowCluster, canvasHeight, cellHeight]);
 
-                // Create ImageData for rank-1 heatmap
-                const imageData = ctx.createImageData(canvasWidth, canvasHeight);
-                const data = imageData.data;
+            // Render column dendrogram (top)
+            React.useEffect(() => {
+                const canvas = colDendrogramRef.current;
+                if (!canvas || !colCluster.merges) return;
 
-                // Render each cell as pixels
-                for (let rowIdx = 0; rowIdx < detectedIndices.length; rowIdx++) {
-                    for (let colIdx = 0; colIdx < N; colIdx++) {
-                        const zScore = zScoredRank1[rowIdx][colIdx];
-                        const [r, g, b] = getColorRGB(zScore);
+                const ctx = canvas.getContext('2d');
+                canvas.width = canvasWidth;
+                canvas.height = colDendrogramHeight;
 
-                        // Calculate pixel coordinates
-                        const startX = Math.floor(colIdx * cellWidth);
-                        const endX = Math.floor((colIdx + 1) * cellWidth);
-                        const startY = Math.floor(rowIdx * cellHeight);
-                        const endY = Math.floor((rowIdx + 1) * cellHeight);
+                ctx.clearRect(0, 0, canvasWidth, colDendrogramHeight);
+                ctx.strokeStyle = '#333';
+                ctx.lineWidth = 1;
 
-                        // Fill the cell area
-                        for (let y = startY; y < endY; y++) {
-                            for (let x = startX; x < endX; x++) {
-                                const pixelIndex = (y * canvasWidth + x) * 4;
-                                data[pixelIndex] = r;     // Red
-                                data[pixelIndex + 1] = g; // Green
-                                data[pixelIndex + 2] = b; // Blue
-                                data[pixelIndex + 3] = 255; // Alpha
-                            }
-                        }
+                // Draw dendrogram from merges
+                const maxDist = Math.max(...colCluster.merges.map(m => m.distance), 0.01);
+
+                colCluster.merges.forEach((merge, idx) => {
+                    const x = (merge.index + 0.5) * cellWidth;
+                    const prevX = idx > 0 ? (merge.index - 0.5) * cellWidth : x;
+                    const y = colDendrogramHeight - (merge.distance / maxDist) * (colDendrogramHeight - 10);
+
+                    // Draw vertical line to merge point
+                    ctx.beginPath();
+                    ctx.moveTo(x, colDendrogramHeight - 5);
+                    ctx.lineTo(x, y);
+                    ctx.stroke();
+
+                    // Draw horizontal connector if not first
+                    if (idx > 0) {
+                        ctx.beginPath();
+                        ctx.moveTo(prevX, y);
+                        ctx.lineTo(x, y);
+                        ctx.stroke();
                     }
-                }
-
-                // Draw the image data to canvas
-                ctx.putImageData(imageData, 0, 0);
-
-                // Draw quartile lines on the heatmap
-                const q1Position = Math.floor(N * 0.25);
-                const q2Position = Math.floor(N * 0.50);
-                const q3Position = Math.floor(N * 0.75);
-
-                // Draw vertical quartile lines
-                ctx.strokeStyle = 'rgba(220, 38, 127, 0.8)'; // Pink for Q1
-                ctx.lineWidth = 2;
-                ctx.setLineDash([5, 5]);
-                ctx.beginPath();
-                ctx.moveTo(q1Position * cellWidth, 0);
-                ctx.lineTo(q1Position * cellWidth, canvasHeight);
-                ctx.stroke();
-
-                ctx.strokeStyle = 'rgba(147, 51, 234, 0.8)'; // Purple for Median
-                ctx.beginPath();
-                ctx.moveTo(q2Position * cellWidth, 0);
-                ctx.lineTo(q2Position * cellWidth, canvasHeight);
-                ctx.stroke();
-
-                ctx.strokeStyle = 'rgba(59, 130, 246, 0.8)'; // Blue for Q3
-                ctx.beginPath();
-                ctx.moveTo(q3Position * cellWidth, 0);
-                ctx.lineTo(q3Position * cellWidth, canvasHeight);
-                ctx.stroke();
-
-                // Reset line dash
-                ctx.setLineDash([]);
-
-                setIsRenderingRank1(false);
-            }, [detectedIndices, matrix, analysisMode, ssvdResults]);
+                });
+            }, [colCluster, canvasWidth, cellWidth]);
 
             return (
                 <div className="bg-white rounded-lg shadow-md p-6">
-                    <h3 className="text-lg font-semibold mb-4">
-                        Solution Submatrix Heatmap ({Q} detections × {N} samples)
+                    <h3 className="text-lg font-semibold mb-4 text-center">
+                        Clustered Heatmap of Solution Submatrix ({Q} detections x {N} samples)
                     </h3>
 
                     {isRendering && (
@@ -4963,53 +5245,51 @@ Click to select`}
                     )}
 
                     <div className="flex justify-center">
-                        <canvas
-                            ref={canvasRef}
-                            data-chart-type="heatmap-original"
-                            style={{
-                                maxWidth: '100%',
-                                border: '1px solid #e5e7eb',
-                                backgroundColor: 'white'
-                            }}
-                        />
-                    </div>
-
-                    <div className="mt-4 text-sm text-gray-600 text-center">
-                        <div>Blue = Below average, Red = Above average (Z-score normalized)</div>
-                        <div>Rows: {Q} detected variables, Columns: {N} samples</div>
-                    </div>
-
-                    {/* Rank-1 Reconstruction Heatmap - for all analysis modes */}
-                    {ssvdResults.u && ssvdResults.v && ssvdResults.s && (
-                        <>
-                            <h3 className="text-lg font-semibold mt-8 mb-4">
-                                Rank-1 Reconstruction Heatmap (U1*S1*V1^T) - Columns Sorted by V1 ({Q} detections × {N} samples)
-                            </h3>
-
-                            {isRenderingRank1 && (
-                                <div className="flex items-center justify-center py-8 text-blue-600">
-                                    <div className="animate-pulse">Rendering rank-1 reconstruction...</div>
-                                </div>
-                            )}
-
-                            <div className="flex justify-center">
+                        <div style={{ display: 'inline-block' }}>
+                            {/* Column dendrogram on top */}
+                            <div style={{ marginLeft: `${rowDendrogramWidth}px`, marginBottom: '0' }}>
                                 <canvas
-                                    ref={canvasRef2}
-                                    data-chart-type="heatmap-sorted"
+                                    ref={colDendrogramRef}
                                     style={{
-                                        maxWidth: '100%',
+                                        display: 'block',
                                         border: '1px solid #e5e7eb',
+                                        borderBottom: 'none',
                                         backgroundColor: 'white'
                                     }}
                                 />
                             </div>
 
-                            <div className="mt-4 text-sm text-gray-600 text-center">
-                                <div>Rank-1 approximation with columns sorted by V1 scores (ascending left to right)</div>
-                                <div>Shows the common pattern across detected variables: U1*S1*V1^T</div>
+                            {/* Row dendrogram and heatmap side by side */}
+                            <div style={{ display: 'flex' }}>
+                                {/* Row dendrogram on left */}
+                                <canvas
+                                    ref={rowDendrogramRef}
+                                    style={{
+                                        display: 'block',
+                                        border: '1px solid #e5e7eb',
+                                        borderRight: 'none',
+                                        backgroundColor: 'white'
+                                    }}
+                                />
+
+                                {/* Main heatmap */}
+                                <canvas
+                                    ref={canvasRef}
+                                    data-chart-type="heatmap-clustered"
+                                    style={{
+                                        display: 'block',
+                                        border: '1px solid #e5e7eb',
+                                        backgroundColor: 'white'
+                                    }}
+                                />
                             </div>
-                        </>
-                    )}
+                        </div>
+                    </div>
+
+                    <div className="mt-4 text-sm text-gray-600 text-center">
+                        <div>Blue = Below average, Red = Above average (Z-score normalized, hierarchically clustered)</div>
+                        <div>Dendrograms show hierarchical clustering structure (rows: left, columns: top)</div>
+                    </div>
                 </div>
             );
         };
@@ -5117,23 +5397,50 @@ Click to select`}
             const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
             const canvasCharts = document.querySelectorAll('canvas');
             const svgCharts = document.querySelectorAll('svg');
-            
+
             console.log(`📊 Found ${canvasCharts.length} canvas charts and ${svgCharts.length} SVG charts for export`);
-            
+
             if (canvasCharts.length === 0 && svgCharts.length === 0) {
                 alert('No charts available to export. Please run analysis first.');
                 return;
             }
 
-            // Export Canvas charts (Chart.js) as PNG
+            // Check if clustered heatmap exists and export it as composite
+            const clusteredHeatmap = document.querySelector('canvas[data-chart-type="heatmap-clustered"]');
+            if (clusteredHeatmap) {
+                console.log('📊 Exporting clustered heatmap as composite...');
+                await exportClusteredHeatmapComposite();
+            }
+
+            // Export Canvas charts (Chart.js) as PNG, excluding clustered heatmap components
             canvasCharts.forEach((canvas, index) => {
                 try {
+                    const chartType = canvas.getAttribute('data-chart-type');
+
+                    // Skip clustered heatmap and its dendrograms (they're exported as composite)
+                    if (chartType === 'heatmap-clustered') {
+                        console.log('⏭️ Skipping clustered heatmap (exported as composite)');
+                        return;
+                    }
+
+                    // Skip dendrograms by checking if they're siblings of the clustered heatmap
+                    const clusteredHeatmapInContainer = canvas.parentElement?.querySelector('canvas[data-chart-type="heatmap-clustered"]');
+                    const isInClusteredHeatmapContainer = !!clusteredHeatmapInContainer;
+
+                    // Also check if it's in the same container structure as clustered heatmap
+                    const container = canvas.closest('.bg-white');
+                    const hasClusteredHeatmap = container?.querySelector('canvas[data-chart-type="heatmap-clustered"]');
+
+                    if (isInClusteredHeatmapContainer || (hasClusteredHeatmap && !chartType)) {
+                        console.log('⏭️ Skipping dendrogram (part of composite)');
+                        return;
+                    }
+
                     const chartContainer = canvas.closest('.bg-white, .chart-container');
                     const titleElement = chartContainer ? chartContainer.querySelector('h3, h4, h5') : null;
                     let chartTitle = titleElement ? titleElement.textContent.trim() : `Chart_${index + 1}`;
 
                     // Add sorted identifier based on data attribute
-                    const chartType = canvas.getAttribute('data-chart-type');
                     if (chartType === 'v1-sorted') {
                         chartTitle = chartTitle.replace('V1 Analysis', 'V1_Sorted_Scores');
                     } else if (chartType === 'v1-original') {
@@ -5308,15 +5615,127 @@ Click to select`}
             });
         };
 
+        // Export Clustered Heatmap with Dendrograms as Single Composite Image
+        const exportClusteredHeatmapComposite = async () => {
+            try {
+                const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+
+                // Find the three canvases
+                const heatmapCanvas = document.querySelector('canvas[data-chart-type="heatmap-clustered"]');
+                const rowDendrogramCanvas = heatmapCanvas?.previousElementSibling;
+                const colDendrogramCanvas = heatmapCanvas?.parentElement?.previousElementSibling?.querySelector('canvas');
+
+                if (!heatmapCanvas) {
+                    alert('No clustered heatmap found. Please run clustering first.');
+                    return;
+                }
+
+                console.log('📊 Found clustered heatmap components:', {
+                    heatmap: !!heatmapCanvas,
+                    rowDendrogram: !!rowDendrogramCanvas,
+                    colDendrogram: !!colDendrogramCanvas
+                });
+
+                // Get dimensions
+                const heatmapWidth = heatmapCanvas.width;
+                const heatmapHeight = heatmapCanvas.height;
+                const rowDendrogramWidth = rowDendrogramCanvas ? rowDendrogramCanvas.width : 0;
+                const colDendrogramHeight = colDendrogramCanvas ? colDendrogramCanvas.height : 0;
+
+                // Calculate composite canvas dimensions
+                const compositeWidth = rowDendrogramWidth + heatmapWidth;
+                const compositeHeight = colDendrogramHeight + heatmapHeight;
+
+                // Create composite canvas
+                const compositeCanvas = document.createElement('canvas');
+                compositeCanvas.width = compositeWidth;
+                compositeCanvas.height = compositeHeight;
+                const ctx = compositeCanvas.getContext('2d');
+
+                // Fill with white background
+                ctx.fillStyle = 'white';
+                ctx.fillRect(0, 0, compositeWidth, compositeHeight);
+
+                // Draw column dendrogram at top-right (if exists)
+                if (colDendrogramCanvas) {
+                    ctx.drawImage(
+                        colDendrogramCanvas,
+                        rowDendrogramWidth,  // x position (offset by row dendrogram width)
+                        0,                   // y position (top)
+                        colDendrogramCanvas.width,
+                        colDendrogramHeight
+                    );
+                }
+
+                // Draw row dendrogram at left-bottom (if exists)
+                if (rowDendrogramCanvas) {
+                    ctx.drawImage(
+                        rowDendrogramCanvas,
+                        0,                   // x position (left)
+                        colDendrogramHeight, // y position (offset by column dendrogram height)
+                        rowDendrogramWidth,
+                        rowDendrogramCanvas.height
+                    );
+                }
+
+                // Draw main heatmap at bottom-right
+                ctx.drawImage(
+                    heatmapCanvas,
+                    rowDendrogramWidth,  // x position (offset by row dendrogram width)
+                    colDendrogramHeight, // y position (offset by column dendrogram height)
+                    heatmapWidth,
+                    heatmapHeight
+                );
+
+                // Export as PNG
+                compositeCanvas.toBlob(blob => {
+                    if (blob) {
+                        // Extract dimensions from title for filename
+                        const heatmapContainer = heatmapCanvas.closest('.bg-white');
+                        const titleElement = heatmapContainer?.querySelector('h3');
+                        let filename = `SSVD1x_Clustered_Heatmap_Composite_${timestamp}.png`;
+
+                        if (titleElement) {
+                            const dimensionMatch = titleElement.textContent.match(/(\d+)\s+detections.*?(\d+)\s+samples/);
+                            if (dimensionMatch) {
+                                const detections = dimensionMatch[1];
+                                const samples = dimensionMatch[2];
+                                filename = `SSVD1x_Clustered_Heatmap_Composite_${detections}x${samples}_${timestamp}.png`;
+                            }
+                        }
+
+                        saveAs(blob, filename);
+                        console.log('✅ Clustered heatmap composite exported:', filename);
+                    }
+                }, 'image/png', 1.0);
+
+            } catch (error) {
+                console.error('Error exporting clustered heatmap composite:', error);
+                alert('Error exporting clustered heatmap composite: ' + error.message);
+            }
+        };
+
         // JSON Export Functions
         const exportAnalysisStateJSON = (results, matrix, matrixInfo, analysisParams) => {
             const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-            
+
             const analysisState = {
                 exportInfo: {
                     timestamp: new Date().toISOString(),
                     version: 'SSVD1x_v2.0',
                     exportType: 'complete_analysis_state'
+                },
+                summary: {
+                    matrixDimensions: `${matrixInfo?.P || matrixInfo?.rows || 0} × ${matrixInfo?.N || matrixInfo?.cols || 0}`,
+                    alpha: results.alpha,
+                    detections: results.detections,
+                    sparsityPercent: results.sparsity,
+                    converged: results.converged,
+                    eFDR: analysisParams?.eFDR ? `${(analysisParams.eFDR.eFDR * 100).toFixed(2)}%` : 'not calculated',
+                    eFDRQuality: analysisParams?.eFDR ? (
+                        analysisParams.eFDR.eFDR <= 0.05 ? 'excellent (≤5%)' :
+                        analysisParams.eFDR.eFDR <= 0.10 ? 'acceptable (≤10%)' : 'high (>10%)'
+                    ) : 'N/A'
                 },
                 matrixInfo: {
                     dimensions: {
@@ -5335,16 +5754,21 @@ Click to select`}
                     converged: results.converged,
                     singularValue: results.s,
                     detectedIndices: results.detectedIndices,
-                    uVector: results.u,
-                    vVector: results.v,
                     errors: results.errors || [],
                     sparsityHistory: results.sparsityHistory || []
                 },
                 analysisParameters: analysisParams || {},
-                matrixData: {
-                    original: matrix,
-                    detectedRows: results.detectedIndices.map(idx => matrix[idx])
-                }
+                eFDRValidation: analysisParams?.eFDR ? {
+                    eFDR: analysisParams.eFDR.eFDR,
+                    pi0: analysisParams.eFDR.pi0,
+                    nsupp: analysisParams.eFDR.nsupp,
+                    Nperm: analysisParams.eFDR.Nperm,
+                    avgPermDetections: analysisParams.eFDR.avgPermDetections,
+                    originalDetections: analysisParams.eFDR.originalDetections,
+                    interpretation: `${(analysisParams.eFDR.eFDR * 100).toFixed(2)}% expected false discoveries`,
+                    quality: analysisParams.eFDR.eFDR <= 0.05 ? 'excellent' :
+                             analysisParams.eFDR.eFDR <= 0.10 ? 'acceptable' : 'high'
+                } : null
             };
 
             const jsonContent = JSON.stringify(analysisState, null, 2);
@@ -5432,18 +5856,98 @@ Click to select`}
                 pdf.text(`${results.s.toFixed(4)}`, rightCol + 35, yPos + 16);
                 pdf.setFont(undefined, 'normal');
 
+                // Update yPos after Analysis Parameters section
+                yPos += 24; // Move past the 3 rows of parameters (16 + 8 spacing)
+
+                // eFDR Validation Section (if available)
+                // Check both analysisParams.eFDR (permutation-based) and results.eFDR (from N-alpha)
+                const eFDRData = analysisParams?.eFDR;
+                const haseFDR = eFDRData || results.eFDR !== undefined;
+
+                if (haseFDR) {
+                    yPos += 30;
+
+                    pdf.setFontSize(16);
+                    pdf.setFont(undefined, 'bold');
+                    pdf.setTextColor(138, 43, 226); // Purple color for eFDR
+                    pdf.text('Statistical Significance (eFDR)', 20, yPos);
+
+                    pdf.setFont(undefined, 'normal');
+                    pdf.setTextColor(0);
+                    pdf.setFontSize(11);
+
+                    yPos += 10;
+
+                    // eFDR value with quality indicator
+                    pdf.text(`eFDR:`, leftCol, yPos);
+                    pdf.setFont(undefined, 'bold');
+
+                    // Handle both formats: eFDRData (from permutations) or results.eFDR (from N-alpha, already percentage)
+                    let eFDRpercent, quality, eFDRfraction;
+                    if (eFDRData) {
+                        // Permutation-based: eFDRData.eFDR is a fraction (0-1)
+                        eFDRfraction = eFDRData.eFDR;
+                        eFDRpercent = (eFDRfraction * 100).toFixed(2);
+                        quality = eFDRfraction <= 0.05 ? '(Excellent)' : eFDRfraction <= 0.10 ? '(Acceptable)' : '(High)';
+                    } else {
+                        // N-alpha based: results.eFDR is already a percentage
+                        eFDRpercent = results.eFDR.toFixed(2);
+                        eFDRfraction = results.eFDR / 100;
+                        quality = eFDRfraction <= 0.05 ? '(Excellent)' : eFDRfraction <= 0.10 ? '(Acceptable)' : '(High)';
+                    }
+
+                    pdf.text(`${eFDRpercent}% ${quality}`, leftCol + 35, yPos);
+                    pdf.setFont(undefined, 'normal');
+
+                    // Parameters (only if from permutation-based analysis)
+                    if (eFDRData) {
+                        pdf.text(`pi0:`, leftCol, yPos + 8);
+                        pdf.setFont(undefined, 'bold');
+                        pdf.text(`${eFDRData.pi0.toFixed(4)}`, leftCol + 35, yPos + 8);
+                        pdf.setFont(undefined, 'normal');
+
+                        pdf.text(`Permutations:`, rightCol, yPos);
+                        pdf.setFont(undefined, 'bold');
+                        pdf.text(`${eFDRData.Nperm}`, rightCol + 35, yPos);
+                        pdf.setFont(undefined, 'normal');
+
+                        pdf.text(`Expected Support:`, rightCol, yPos + 8);
+                        pdf.setFont(undefined, 'bold');
+                        pdf.text(`${eFDRData.nsupp}`, rightCol + 35, yPos + 8);
+                        pdf.setFont(undefined, 'normal');
+
+                        // Interpretation
+                        yPos += 20;
+                        pdf.setFontSize(10);
+                        const expectedFP = (eFDRData.eFDR * eFDRData.originalDetections).toFixed(1);
+                        pdf.text(`Interpretation: Approximately ${expectedFP} of ${eFDRData.originalDetections} detected features`, 25, yPos);
+                        pdf.text(`are expected to be false discoveries.`, 25, yPos + 6);
+                        yPos += 10; // Add spacing after interpretation
+                        pdf.text(`Source: eFDR estimation based on ${eFDRData.Nperm} permutations`, 25, yPos);
+                        yPos += 6; // Line spacing
+                    } else {
+                        yPos += 8;
+                        pdf.setFontSize(10);
+                        pdf.text(`Source: N-alpha analysis with multi-alpha eFDR estimation`, 25, yPos);
+                        yPos += 6; // Line spacing
+                    }
+
+                    yPos += 15; // Add space after eFDR section
+                }
+
                 // Experiment Description Section
+                yPos += 10; // Add spacing before Analysis Overview
                 pdf.setFontSize(16);
                 pdf.setFont(undefined, 'bold');
                 pdf.setTextColor(0, 102, 204);
-                pdf.text('Analysis Overview', 20, 145);
-                
+                pdf.text('Analysis Overview', 20, yPos);
+
                 pdf.setFont(undefined, 'normal');
                 pdf.setTextColor(0);
                 pdf.setFontSize(10);
-                
+
                 // Experiment description text
-                let descY = 155;
+                yPos += 10;
                 const descText = [
                     `This SSVD analysis was performed on a ${P} × ${N} data matrix to identify sparse patterns`,
                     `in the first singular vector using L1 regularization with alpha = ${results.alpha.toFixed(4)}.`,
@@ -5451,29 +5955,31 @@ Click to select`}
                     `The algorithm detected ${results.detections} variables (${((results.detections/P)*100).toFixed(1)}% of total)`,
                     `that contribute to the primary singular vector pattern with singular value ${results.s.toFixed(2)}.`
                 ];
-                
+
                 descText.forEach(line => {
                     if (line) {
-                        pdf.text(line, 20, descY);
+                        pdf.text(line, 20, yPos);
                     }
-                    descY += 6;
+                    yPos += 6;
                 });
-                
+
                 // Analysis Method Box
+                yPos += 10; // Add spacing before Method Details
                 pdf.setFontSize(14);
                 pdf.setFont(undefined, 'bold');
                 pdf.setTextColor(0, 102, 204);
-                pdf.text('Method Details', 20, 195);
-                
+                pdf.text('Method Details', 20, yPos);
+
                 pdf.setFont(undefined, 'normal');
                 pdf.setTextColor(0);
                 pdf.setFontSize(9);
-                
+
                 // Method info box
+                yPos += 5; // Small gap before box
                 pdf.setFillColor(245, 250, 255);
-                pdf.rect(15, 200, 180, 45, 'FD');
-                
-                let methodY = 208;
+                pdf.rect(15, yPos, 180, 45, 'FD');
+
+                let methodY = yPos + 8;
                 pdf.text('Algorithm: Sparse SVD Rank-1 (SSVD-R1) with iterative soft thresholding', 20, methodY);
                 methodY += 7;
                 pdf.text(`Regularization: L1 penalty with alpha = ${results.alpha.toFixed(6)}`, 20, methodY);
@@ -5529,7 +6035,7 @@ Click to select`}
         };
 
         // SSVD Results Display Components
-        const SSVDResultsDisplay = ({ results, matrixInfo, matrix, onNewAnalysis, onResetToOriginal, onRerunWithAlpha }) => {
+        const SSVDResultsDisplay = ({ results, matrixInfo, matrix, onResetToOriginal, onRerunWithAlpha, onBack, selectedAlphaeFDR }) => {
             if (!results) return null;
 
             // Defensive check: ensure results has required properties
@@ -5596,12 +6102,21 @@ Click to select`}
             };
             
             const handleExportJSON = () => {
-                exportAnalysisStateJSON(results, matrix, matrixInfo, { alpha: results.alpha });
+                exportAnalysisStateJSON(results, matrix, matrixInfo, { alpha: results.alpha, eFDR: selectedAlphaeFDR });
                 setShowExportMenu(false);
             };
             
             const handleExportPDF = () => {
-                generatePDFReport(results, matrix, matrixInfo, { alpha: results.alpha });
+                // Pass selectedAlphaeFDR directly as the eFDR parameter
+                const analysisParams = {
+                    alpha: results.alpha,
+                    analysisType: results.parameters?.analysisType || 'single'
+                };
+                // Only add eFDR if it exists
+                if (selectedAlphaeFDR) {
+                    analysisParams.eFDR = selectedAlphaeFDR;
+                }
+                generatePDFReport(results, matrix, matrixInfo, analysisParams);
                 setShowExportMenu(false);
             };
             
@@ -5615,112 +6130,143 @@ Click to select`}
                     {/* Summary Statistics */}
                     <div className="bg-white rounded-lg shadow-md p-6">
                         <div className="mb-4 flex justify-between items-center">
-                            <h2 className="text-xl font-semibold">Summary of Results</h2>
-                            <div className="relative">
-                                <button
-                                    onClick={() => {
-                                        console.log('Export button clicked, current showExportMenu:', showExportMenu);
-                                        setShowExportMenu(!showExportMenu);
-                                    }}
-                                    className="bg-gradient-to-r from-green-600 to-blue-600 hover:from-green-700 hover:to-blue-700 text-white px-4 py-2 rounded-lg font-medium text-sm flex items-center gap-2 transition-colors"
-                                    title="Export analysis results in multiple formats"
-                                >
-                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                                    </svg>
-                                    Export Results
-                                    <svg className={`w-4 h-4 transition-transform ${showExportMenu ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                                    </svg>
-                                </button>
-                                
-                                {showExportMenu && (
-                                    <div className="absolute right-0 mt-2 w-64 bg-white rounded-lg shadow-xl border border-gray-200 z-50">
-                                        <div className="p-3 border-b border-gray-200">
-                                            <h3 className="text-sm font-semibold text-gray-800">Export Options</h3>
-                                            <p className="text-xs text-gray-600">Alpha = {results?.alpha?.toFixed(4) || 'N/A'}</p>
-                                        </div>
-                                        <div className="p-2 space-y-1">
+                            <h2 className="text-xl font-semibold">
+                                {results.fromAnalysisStep === 'nalpha' ? 'Summary of Results for Selected Alpha' : 'Summary of Results'}
+                            </h2>
+                            <div className="flex items-center gap-3">
+                                {/* Back Button - show for N-alpha and eFDR analysis */}
+                                {(results.fromAnalysisStep === 'nalpha' || results.fromAnalysisStep === 'efdr') && onBack && (
+                                    <button
+                                        onClick={onBack}
+                                        className="bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 text-white px-4 py-2 rounded-lg font-medium text-sm flex items-center gap-2 transition-colors"
+                                        title={results.fromAnalysisStep === 'nalpha' ? 'Back to N-alpha results table' : 'Back to eFDR results'}
+                                    >
+                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                                        </svg>
+                                        Back
+                                    </button>
+                                )}
+
+                                {/* Reset Button - show for N-alpha and eFDR analysis only (single-alpha has Reset at top) */}
+                                {(results.fromAnalysisStep === 'nalpha' || results.fromAnalysisStep === 'efdr') && (
+                                    <button
+                                        onClick={onResetToOriginal}
+                                        className="bg-gradient-to-r from-gray-500 to-gray-600 hover:from-gray-600 hover:to-gray-700 text-white px-4 py-2 rounded-lg font-medium text-sm flex items-center gap-2 transition-colors"
+                                        title="Reset and upload new data"
+                                    >
+                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                        </svg>
+                                        Reset
+                                    </button>
+                                )}
+
+                                {/* Export Button */}
+                                <div className="relative">
+                                    <button
+                                        onClick={() => setShowExportMenu(!showExportMenu)}
+                                        data-export-button
+                                        className="bg-gradient-to-r from-green-600 to-blue-600 hover:from-green-700 hover:to-blue-700 text-white px-4 py-2 rounded-lg font-medium text-sm flex items-center gap-2 transition-colors"
+                                        title="Export analysis results in multiple formats"
+                                    >
+                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                        </svg>
+                                        Export
+                                        <svg className={`w-4 h-4 transition-transform ${showExportMenu ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                                        </svg>
+                                    </button>
+
+                            {showExportMenu && (
+                                <div className="absolute right-0 mt-2 w-64 bg-white rounded-lg shadow-xl border border-gray-200 z-50">
+                                    <div className="p-3 border-b border-gray-200">
+                                        <h3 className="text-sm font-semibold text-gray-800">Export Options</h3>
+                                        <p className="text-xs text-gray-600">Alpha = {results?.alpha?.toFixed(4) || 'N/A'}</p>
+                                    </div>
+                                    <div className="p-2 space-y-1">
+                                        <button
+                                            onClick={handleExportDetectedRows}
+                                            className="w-full text-left px-3 py-2 text-sm hover:bg-blue-50 rounded-md flex items-center gap-2"
+                                        >
+                                            <span className="text-blue-600">📊</span>
+                                            Detected Rows (CSV)
+                                        </button>
+                                        <button
+                                            onClick={handleExportV1Scores}
+                                            className="w-full text-left px-3 py-2 text-sm hover:bg-indigo-50 rounded-md flex items-center gap-2"
+                                        >
+                                            <span className="text-indigo-600">📉</span>
+                                            V1 Scores (CSV)
+                                        </button>
+                                        <button
+                                            onClick={handleExportParameters}
+                                            className="w-full text-left px-3 py-2 text-sm hover:bg-green-50 rounded-md flex items-center gap-2"
+                                        >
+                                            <span className="text-green-600">⚙️</span>
+                                            Analysis Parameters (CSV)
+                                        </button>
+                                        <button
+                                            onClick={handleExportCharts}
+                                            className="w-full text-left px-3 py-2 text-sm hover:bg-purple-50 rounded-md flex items-center gap-2"
+                                        >
+                                            <span className="text-purple-600">📈</span>
+                                            Charts (PNG)
+                                        </button>
+                                        <button
+                                            onClick={handleExportJSON}
+                                            className="w-full text-left px-3 py-2 text-sm hover:bg-orange-50 rounded-md flex items-center gap-2"
+                                        >
+                                            <span className="text-orange-600">🔢</span>
+                                            Complete State (JSON)
+                                        </button>
+                                        <button
+                                            onClick={handleExportPDF}
+                                            className="w-full text-left px-3 py-2 text-sm hover:bg-red-50 rounded-md flex items-center gap-2"
+                                        >
+                                            <span className="text-red-600">📄</span>
+                                            Report (PDF)
+                                        </button>
+                                        <div className="border-t border-gray-200 pt-2 mt-2">
                                             <button
-                                                onClick={handleExportDetectedRows}
-                                                className="w-full text-left px-3 py-2 text-sm hover:bg-blue-50 rounded-md flex items-center gap-2"
+                                                onClick={handleExportAll}
+                                                className="w-full text-left px-3 py-2 text-sm bg-gradient-to-r from-green-50 to-blue-50 hover:from-green-100 hover:to-blue-100 rounded-md flex items-center gap-2 font-medium"
                                             >
-                                                <span className="text-blue-600">📊</span>
-                                                Detected Rows (CSV)
+                                                <span className="text-indigo-600">📦</span>
+                                                Export All Formats
                                             </button>
-                                            <button
-                                                onClick={handleExportV1Scores}
-                                                className="w-full text-left px-3 py-2 text-sm hover:bg-indigo-50 rounded-md flex items-center gap-2"
-                                            >
-                                                <span className="text-indigo-600">📉</span>
-                                                V1 Scores (CSV)
-                                            </button>
-                                            <button
-                                                onClick={handleExportParameters}
-                                                className="w-full text-left px-3 py-2 text-sm hover:bg-green-50 rounded-md flex items-center gap-2"
-                                            >
-                                                <span className="text-green-600">⚙️</span>
-                                                Analysis Parameters (CSV)
-                                            </button>
-                                            <button
-                                                onClick={handleExportCharts}
-                                                className="w-full text-left px-3 py-2 text-sm hover:bg-purple-50 rounded-md flex items-center gap-2"
-                                            >
-                                                <span className="text-purple-600">📈</span>
-                                                Charts (PNG)
-                                            </button>
-                                            <button
-                                                onClick={handleExportJSON}
-                                                className="w-full text-left px-3 py-2 text-sm hover:bg-orange-50 rounded-md flex items-center gap-2"
-                                            >
-                                                <span className="text-orange-600">🔢</span>
-                                                Complete State (JSON)
-                                            </button>
-                                            <button
-                                                onClick={handleExportPDF}
-                                                className="w-full text-left px-3 py-2 text-sm hover:bg-red-50 rounded-md flex items-center gap-2"
-                                            >
-                                                <span className="text-red-600">📄</span>
-                                                Report (PDF)
-                                            </button>
-                                            <div className="border-t border-gray-200 pt-2 mt-2">
-                                                <button
-                                                    onClick={handleExportAll}
-                                                    className="w-full text-left px-3 py-2 text-sm bg-gradient-to-r from-green-50 to-blue-50 hover:from-green-100 hover:to-blue-100 rounded-md flex items-center gap-2 font-medium"
-                                                >
-                                                    <span className="text-indigo-600">📦</span>
-                                                    Export All Formats
-                                                </button>
-                                            </div>
                                         </div>
                                     </div>
-                                )}
+                                </div>
+                            )}
+                                </div>
                             </div>
                         </div>
                         <div className={`grid grid-cols-1 ${results.eFDR !== undefined ? 'md:grid-cols-5' : 'md:grid-cols-4'} gap-4 mb-6`}>
-                            <div className="bg-blue-50 p-4 rounded-lg">
+                            <div className="bg-blue-50 p-4 rounded-lg cursor-help transition-all hover:shadow-md" title="L1 regularization parameter controlling sparsity level. Higher values = more sparsity.">
                                 <div className="text-sm text-blue-600 font-medium">Alpha Value</div>
                                 <div className="text-2xl font-bold text-blue-900">{results.alpha.toFixed(4)}</div>
                                 <div className="text-xs text-blue-600">sparsity parameter</div>
                             </div>
                             {results.eFDR !== undefined && (
-                                <div className="bg-yellow-50 p-4 rounded-lg">
+                                <div className="bg-yellow-50 p-4 rounded-lg cursor-help transition-all hover:shadow-md" title="Empirical False Discovery Rate: estimated proportion of false positives among detections. Lower is better.">
                                     <div className="text-sm text-yellow-600 font-medium">eFDR</div>
                                     <div className="text-2xl font-bold text-yellow-900">{results.eFDR.toFixed(2)}%</div>
                                     <div className="text-xs text-yellow-600">false discovery rate</div>
                                 </div>
                             )}
-                            <div className="bg-green-50 p-4 rounded-lg">
+                            <div className="bg-green-50 p-4 rounded-lg cursor-help transition-all hover:shadow-md" title="Number of variables with non-zero loadings identified as containing signal.">
                                 <div className="text-sm text-green-600 font-medium">Detections</div>
                                 <div className="text-2xl font-bold text-green-900">{results.detections}</div>
                                 <div className="text-xs text-green-600">out of {results.u.length}</div>
                             </div>
-                            <div className="bg-purple-50 p-4 rounded-lg">
+                            <div className="bg-purple-50 p-4 rounded-lg cursor-help transition-all hover:shadow-md" title="Percentage of variables with non-zero loadings in the sparse solution.">
                                 <div className="text-sm text-purple-600 font-medium">Sparsity</div>
                                 <div className="text-2xl font-bold text-purple-900">{results.sparsity}%</div>
                                 <div className="text-xs text-purple-600">non-zero loadings</div>
                             </div>
-                            <div className="bg-orange-50 p-4 rounded-lg">
+                            <div className="bg-orange-50 p-4 rounded-lg cursor-help transition-all hover:shadow-md" title="Number of iterations required for the SSVD algorithm to converge or reach maximum limit.">
                                 <div className="text-sm text-orange-600 font-medium">Iterations</div>
                                 <div className="text-2xl font-bold text-orange-900">{results.iterations || 'N/A'}</div>
                                 <div className="text-xs text-orange-600">{results.converged ? 'Converged' : 'Max iterations reached'}</div>
@@ -6216,9 +6762,15 @@ Click to select`}
             const [isRunningAnalysis, setIsRunningAnalysis] = useState(false);
             const [analysisProgress, setAnalysisProgress] = useState({ current: 0, total: 0, message: '' });
             const [isAnalysisCancelled, setIsAnalysisCancelled] = useState(false);
+            const isAnalysisCancelledRef = useRef(false); // Use ref for immediate access in async callbacks
             const [analysisResults, setAnalysisResults] = useState(null);
             const [alphaSequenceResults, setAlphaSequenceResults] = useState(null);
             const [selectedAlphaIndex, setSelectedAlphaIndex] = useState(null);
+
+            // eFDR calculation state - simplified state machine
+            const [eFDRState, seteFDRState] = useState('idle'); // 'idle', 'running', 'complete'
+            const [eFDRParameters, seteFDRParameters] = useState({ sprcnt: 5, Nperm: 25 });
+            const [selectedAlphaeFDR, setSelectedAlphaeFDR] = useState(null);
 
             // Ref for auto-scrolling to progress indicator
             const progressIndicatorRef = useRef(null);
@@ -6285,12 +6837,93 @@ Click to select`}
                     }
                 };
             };
-            
+
+            const handleRunSingleAlphaeFDR = async (nsupp) => {
+                if (!nsupp || !analysisResults) return;
+
+                console.log('Starting single-alpha eFDR calculation...');
+                console.log('Alpha:', analysisResults.alpha);
+                console.log('Original detections:', analysisResults.nonZeroIndices?.length || analysisResults.detectedIndices?.length);
+                console.log('nsupp:', nsupp);
+                console.log('Nperm:', eFDRParameters.Nperm);
+
+                setSelectedAlphaeFDR(null); // Clear previous results
+                seteFDRState('running'); // State machine transition: idle → running
+                setIsRunningAnalysis(true);
+                setIsAnalysisCancelled(false);
+                isAnalysisCancelledRef.current = false; // Reset ref for new analysis
+
+                // Initialize progress with known total
+                const Nperm = eFDRParameters.Nperm || 25;
+                setAnalysisProgress({ current: 0, total: Nperm, message: 'Initializing eFDR analysis...' });
+
+                // Auto-scroll to progress section after brief delay
+                setTimeout(() => {
+                    const progressElement = document.querySelector('[data-efdr-progress]');
+                    if (progressElement) {
+                        progressElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    }
+                }, 200);
+
+                try {
+                    // Use cached detection count from N-alpha analysis
+                    const originalDetections = analysisResults.nonZeroIndices?.length || analysisResults.detectedIndices?.length || 0;
+
+                    const result = await runPermutationsForAlpha({
+                        matrix: matrix,
+                        alpha: analysisResults.alpha,
+                        originalDetections: originalDetections,
+                        Nperm: Nperm,
+                        nsupp: nsupp,
+                        onProgress: (current, total, message) => {
+                            console.log(`📊 Progress update: ${current}/${total} - ${message}`);
+                            setAnalysisProgress({ current, total, message });
+                        },
+                        isCancelled: () => isAnalysisCancelledRef.current // Use ref for immediate access
+                    });
+
+                    setSelectedAlphaeFDR(result);
+
+                    // Update analysisResults with eFDR value (as percentage for consistency with N-alpha mode)
+                    setAnalysisResults(prev => ({
+                        ...prev,
+                        eFDR: result.eFDR * 100  // Convert fraction to percentage
+                    }));
+
+                    seteFDRState('complete'); // State machine transition: running → complete
+                    console.log('✅ eFDR calculated:', result);
+
+                    // Auto-scroll to eFDR results after a brief delay for rendering
+                    setTimeout(() => {
+                        const eFDRElement = document.querySelector('[data-efdr-results]');
+                        if (eFDRElement) {
+                            eFDRElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        }
+                    }, 300);
+                } catch (error) {
+                    // Check if cancelled - if so, suppress ALL error messages
+                    if (isAnalysisCancelledRef.current) {
+                        console.log('🛑 eFDR calculation was cancelled - suppressing error:', error.message);
+                    } else {
+                        // Only show alert for real errors, not cancellation
+                        console.error('❌ eFDR calculation failed:', error);
+                        if (!error.message.includes('cancelled')) {
+                            alert('eFDR calculation failed: ' + error.message);
+                        }
+                    }
+                    seteFDRState('idle'); // State machine transition: running → idle (on error)
+                } finally {
+                    setIsRunningAnalysis(false);
+                    setAnalysisProgress({ current: 0, total: 0, message: '' });
+                }
+            };
+
             const handleStartAnalysis = async (config) => {
                 console.log('Starting analysis with config:', config);
                 console.log('🔄 Setting isRunningAnalysis to TRUE');
                 setIsRunningAnalysis(true);
                 setIsAnalysisCancelled(false);
+                isAnalysisCancelledRef.current = false; // Reset ref for new analysis
                 setAnalysisProgress({ current: 0, total: 0, message: 'Initializing analysis...' });
                 // Keep panel visible for single alpha (combined view), keep visible for multi-alpha during analysis
                 // Note: Multi-alpha analysis should show configuration panel during analysis
@@ -6349,9 +6982,9 @@ Click to select`}
 
                             // Run SSVD for each alpha
                         for (let i = 0; i < alphaValues.length; i++) {
-                            // Check for cancellation
-                            if (isAnalysisCancelled) {
-                                console.log('Analysis cancelled by user');
+                            // Check for cancellation using ref for immediate access
+                            if (isAnalysisCancelledRef.current) {
+                                console.log('🛑 N-Alpha analysis cancelled by user');
                                 return;
                             }
                             
@@ -6450,7 +7083,7 @@ Click to select`}
                                 Nperm: config.Nperm,
                                 nsupp: config.nsupp,
                                 initialSVD: matrixInfo?.initialSVD,  // Pass cached SVD
-                                isCancelled: () => isAnalysisCancelled,  // Pass cancellation check
+                                isCancelled: () => isAnalysisCancelledRef.current,  // Pass cancellation check using ref
                                 onProgress: (current, total, message) => {
                                     // Use Web Worker progress directly for eFDR phase
                                     console.log(`eFDR Progress: current=${current}, workerTotal=${total}`);
@@ -6480,6 +7113,13 @@ Click to select`}
                             });
                             
                             console.log('FDR Results received:', fdrResults);
+
+                            // Check if analysis was cancelled
+                            if (fdrResults.cancelled || isAnalysisCancelledRef.current) {
+                                console.log('🛑 eFDR analysis was cancelled - skipping all result processing');
+                                return;
+                            }
+
                             console.log('FDR Values:', fdrResults.fdrValues);
                             console.log('FDR Results structure:', Object.keys(fdrResults));
 
@@ -6496,9 +7136,20 @@ Click to select`}
                             await new Promise(resolve => setTimeout(resolve, 1000));
 
                             if (!fdrResults.fdrValues) {
+                                // Check if cancelled before showing error
+                                if (isAnalysisCancelledRef.current) {
+                                    console.log('🛑 eFDR analysis was cancelled - no FDR values expected');
+                                    return;
+                                }
                                 console.error('ERROR: fdrResults.fdrValues is undefined!');
                                 console.error('Available keys:', Object.keys(fdrResults));
                                 alert('eFDR analysis failed: No FDR values returned');
+                                return;
+                            }
+
+                            // Check if cancelled before processing results
+                            if (isAnalysisCancelledRef.current) {
+                                console.log('🛑 eFDR analysis was cancelled - skipping results processing');
                                 return;
                             }
 
@@ -6582,10 +7233,17 @@ Click to select`}
                         }, 1000);
                     }
                 } catch (error) {
-                    // Only show error if not cancelled
-                    if (!isAnalysisCancelled) {
+                    // Only show error if not cancelled AND not a typical cancellation error
+                    const isCancellationError = isAnalysisCancelledRef.current ||
+                                               error.message?.includes('cancelled') ||
+                                               error.message?.includes('undefined') ||
+                                               error.message?.includes('Cannot read properties');
+
+                    if (!isCancellationError) {
                         console.error('Analysis error:', error);
                         alert(`Analysis failed: ${error.message}`);
+                    } else {
+                        console.log('🛑 Analysis was cancelled or interrupted - suppressing error:', error.message);
                     }
                     // Clear progress immediately on error
                     setAnalysisProgress({ current: 0, total: 0, message: '' });
@@ -6640,6 +7298,20 @@ Click to select`}
                         )}
                         
                         
+                        {/* N-Alpha Analysis Title (when viewing single-alpha results) */}
+                        {analysisResults && analysisResults.mode === 'single' && analysisResults.fromAnalysisStep === 'nalpha' && (
+                            <div className="bg-gradient-to-r from-blue-600 to-indigo-700 rounded-lg shadow-lg p-6 text-white mb-6">
+                                <div className="flex justify-between items-center">
+                                    <div>
+                                        <h1 className="text-3xl font-bold mb-2">N-Alpha Analysis (cont.)</h1>
+                                        <p className="text-blue-100 text-sm">
+                                            Results for selected alpha value from N-alpha table
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
                         {/* Data Summary Bar */}
                         {matrix && matrixInfo && showAnalysisPanel && statistics && (
                             <DataSummaryBar
@@ -6683,15 +7355,21 @@ Click to select`}
                                 )}
                                 {/* Show results when not running */}
                                 {!isRunningAnalysis && analysisResults && analysisResults.mode === 'single' && (
-                                    <SSVDResultsDisplay 
+                                    <SSVDResultsDisplay
                                         results={analysisResults}
                                         matrixInfo={matrixInfo}
                                         matrix={matrix}
+                                        onBack={analysisResults.fromAnalysisStep === 'efdr' ? () => {
+                                            // Back to eFDR results table
+                                            console.log('⬅️ Back to eFDR results');
+                                            setAnalysisResults(null);
+                                        } : undefined}
                                         onNewAnalysis={() => {
                                             setAnalysisResults(null);
                                         }}
                                         onResetToOriginal={resetData}
                                         onRerunWithAlpha={handleRerunWithAlpha}
+                                        selectedAlphaeFDR={selectedAlphaeFDR}
                                     />
                                 )}
                             </>
@@ -6710,7 +7388,7 @@ Click to select`}
                         )}
                         
                         {/* Analysis Running Indicator - for multi-alpha only */}
-                        {isRunningAnalysis && analysisStep !== 'single' && (
+                        {isRunningAnalysis && analysisStep !== 'single' && !analysisResults && (
                             <div ref={progressIndicatorRef} className="bg-white rounded-lg shadow-md p-8">
                                 <div className="flex flex-col items-center justify-center">
                                     <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600 mb-4"></div>
@@ -6826,45 +7504,41 @@ Click to select`}
                                         )}
 
                                         {/* Cancel Button with Confirmation */}
-                                        {(analysisStep === 'efdr' || analysisStep === 'nalpha') && (
+                                        {(analysisStep === 'efdr' || analysisStep === 'alpha') && (
                                         <div className="flex justify-center mt-4">
                                             <button
                                                 onClick={() => {
-                                                    const progress = Math.round((analysisProgress.current / analysisProgress.total) * 100);
                                                     const analysisType = analysisStep === 'efdr' ? 'eFDR' : 'N-Alpha';
-                                                    const confirmMessage = `Cancel ${analysisType} analysis?\n\nProgress: ${progress}% complete (${analysisProgress.current}/${analysisProgress.total})\n\nThis will stop the analysis and you'll lose current progress.\n\nAre you sure you want to cancel?`;
+                                                    console.log(`🛑 User clicked Cancel - stopping ${analysisType} analysis`);
+                                                    setIsAnalysisCancelled(true);
+                                                    isAnalysisCancelledRef.current = true; // Set ref immediately for N-Alpha loop
+                                                    setAnalysisProgress(prev => ({
+                                                        ...prev,
+                                                        message: 'Cancelling analysis...'
+                                                    }));
+                                                    // IMMEDIATE termination - don't wait for anything
+                                                    console.log('🛑 EMERGENCY STOP - Terminating everything immediately');
 
-                                                    if (confirm(confirmMessage)) {
-                                                        console.log(`🛑 User confirmed ${analysisType} analysis cancellation`);
-                                                        setIsAnalysisCancelled(true);
-                                                        setAnalysisProgress(prev => ({
-                                                            ...prev,
-                                                            message: 'Cancelling analysis...'
-                                                        }));
-                                                        // IMMEDIATE termination - don't wait for anything
-                                                        console.log('🛑 EMERGENCY STOP - Terminating everything immediately');
-
-                                                        // 1. Kill worker instantly
-                                                        if (fdrWorker) {
-                                                            fdrWorker.terminate();
-                                                            fdrWorker = null;
-                                                        }
-
-                                                        // 2. Clear all promises
-                                                        workerPromises.clear();
-
-                                                        // 3. Reset UI immediately
-                                                        setIsRunningAnalysis(false);
-                                                        setIsAnalysisCancelled(false);
-                                                        setAnalysisProgress({ current: 0, total: 0, message: '' });
-
-                                                        // 4. Stop all background systems
-                                                        try {
-                                                            if (typeof stopKeepAlive === 'function') stopKeepAlive();
-                                                            if (typeof stopProgressSync === 'function') stopProgressSync();
-                                                            if (window.setProgress) window.setProgress = null;
-                                                        } catch (e) { /* ignore */ }
+                                                    // 1. Kill worker instantly
+                                                    if (fdrWorker) {
+                                                        fdrWorker.terminate();
+                                                        fdrWorker = null;
                                                     }
+
+                                                    // 2. Clear all promises
+                                                    workerPromises.clear();
+
+                                                    // 3. Reset UI immediately
+                                                    setIsRunningAnalysis(false);
+                                                    setIsAnalysisCancelled(false);
+                                                    setAnalysisProgress({ current: 0, total: 0, message: '' });
+
+                                                    // 4. Stop all background systems
+                                                    try {
+                                                        if (typeof stopKeepAlive === 'function') stopKeepAlive();
+                                                        if (typeof stopProgressSync === 'function') stopProgressSync();
+                                                        if (window.setProgress) window.setProgress = null;
+                                                    } catch (e) { /* ignore */ }
                                                 }}
                                                 className={`px-6 py-2 rounded-md font-medium transition-colors ${
                                                     isAnalysisCancelled
@@ -6885,21 +7559,17 @@ Click to select`}
                         {/* Multi-Alpha Results Table */}
                         {originalMatrix && alphaSequenceResults && (
                             <>
+                                {!analysisResults && (
                                 <AlphaSequenceResultsDisplay 
                                     results={alphaSequenceResults}
                                     selectedIndex={selectedAlphaIndex}
                                     onSelectAlpha={(index) => {
-                                        console.log('Alpha row selected, index:', index);
                                         setSelectedAlphaIndex(index);
-                                        console.log('Selected alpha index state updated to:', index);
                                     }}
                                     onRunSingleAlpha={async (alpha) => {
-                                        console.log('Chart selection for α =', alpha);
-
                                         // Check if we have pre-computed results for this alpha
                                         const preComputed = alphaSequenceResults?.results?.find(r => Math.abs(r.alpha - alpha) < 1e-10);
                                         if (preComputed) {
-                                            console.log('✅ Using pre-computed result (100x faster)');
 
                                             // Validate that essential properties exist
                                             if (!preComputed.u || !Array.isArray(preComputed.u)) {
@@ -6907,7 +7577,7 @@ Click to select`}
                                             } else {
                                                 const singleResult = {
                                                     mode: 'single',
-                                                    fromAnalysisStep: 'nalpha',  // Track it's from N-alpha
+                                                    fromAnalysisStep: alphaSequenceResults.analysisType === 'efdr' ? 'efdr' : 'nalpha',  // Track source
                                                     alpha: preComputed.alpha,
                                                     eFDR: preComputed.eFDR,  // Include eFDR if available
                                                     u: preComputed.u,
@@ -6924,7 +7594,17 @@ Click to select`}
                                                         matrixSize: `${matrix.length} × ${matrix[0].length}`
                                                     }
                                                 };
+                                                // Reset eFDR state when new alpha selected
+                                                setSelectedAlphaeFDR(null);
+                                                seteFDRState('idle');
                                                 setAnalysisResults(singleResult);
+                                                console.log('✅ Single-alpha results set:', singleResult);
+                                                console.log('State check:', {
+                                                    eFDRState: 'idle',
+                                                    isRunningAnalysis: false,
+                                                    mode: singleResult.mode,
+                                                    fromAnalysisStep: singleResult.fromAnalysisStep
+                                                });
                                                 return;
                                             }
                                         }
@@ -6932,8 +7612,15 @@ Click to select`}
                                         // Fallback to running analysis if no pre-computed result found
                                         console.log('❌ No pre-computed result found, running SSVD for α =', alpha);
                                         try {
+                                            // Reset eFDR state when new alpha selected
+                                            setSelectedAlphaeFDR(null);
                                             setIsRunningAnalysis(true);
                                             const singleResults = await runSingleAlphaAnalysis(alpha);
+                                            singleResults.fromAnalysisStep = alphaSequenceResults.analysisType === 'efdr' ? 'efdr' : 'nalpha';
+                                            // Copy eFDR from pre-computed if available
+                                            if (preComputed && preComputed.eFDR !== undefined) {
+                                                singleResults.eFDR = preComputed.eFDR;
+                                            }
                                             setAnalysisResults(singleResults);
                                             console.log('Single alpha analysis complete:', singleResults);
                                         } catch (error) {
@@ -6954,29 +7641,333 @@ Click to select`}
                                     }}
                                     onResetToOriginal={resetData}
                                 />
-                                
-                                {/* Show progress indicator when running single-alpha from N-alpha table */}
-                                {isRunningAnalysis && (
+                                )}
+
+                                {/* Show progress indicator when running SSVD from N-alpha table (NOT eFDR) */}
+                                {isRunningAnalysis && eFDRState !== 'running' && (
                                     <div className="bg-white rounded-lg shadow-md p-6 mt-6">
                                         <div className="flex flex-col items-center justify-center">
-                                            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600 mb-4"></div>
-                                            <p className="text-gray-600">Running SSVD Analysis...</p>
+                                            <h3 className="text-lg font-semibold text-gray-700 mb-4">
+                                                Running SSVD Analysis
+                                            </h3>
+
+                                            {/* Progress Bar */}
+                                            {analysisProgress?.total > 0 && (
+                                                <div className="w-full max-w-2xl mb-4">
+                                                    <div className="flex justify-between text-sm text-gray-600 mb-2">
+                                                        <span>Progress: {analysisProgress.current}/{analysisProgress.total}</span>
+                                                        <span>{Math.round((analysisProgress.current / analysisProgress.total) * 100)}%</span>
+                                                    </div>
+                                                    <div className="w-full bg-gray-200 rounded-full h-3">
+                                                        <div
+                                                            className="h-3 rounded-full transition-all duration-500 ease-in-out bg-indigo-600"
+                                                            style={{ width: `${Math.min((analysisProgress.current / analysisProgress.total) * 100, 100)}%` }}
+                                                        ></div>
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            <p className="text-sm text-gray-600 text-center">
+                                                {analysisProgress?.message || 'Initializing analysis...'}
+                                            </p>
                                         </div>
                                     </div>
                                 )}
                                 
                                 {/* Show single-alpha results when selected from N-alpha table */}
-                                {!isRunningAnalysis && analysisResults && analysisResults.mode === 'single' && (
-                                    <SSVDResultsDisplay 
-                                        results={analysisResults}
-                                        matrixInfo={matrixInfo}
-                                        matrix={matrix}
-                                        onNewAnalysis={() => {
+                                {analysisResults && analysisResults.mode === 'single' && (
+                                    <SSVDResultsDisplay
+                                            results={analysisResults}
+                                            matrixInfo={matrixInfo}
+                                            matrix={matrix}
+                                            onBack={() => {
+                                            // Back to N-alpha table - clear single-alpha state only
+                                            console.log('⬅️ Back to N-alpha results table');
                                             setAnalysisResults(null);
+                                            setSelectedAlphaeFDR(null);
+                                            seteFDRState('idle');
+                                            setSelectedAlphaIndex(null);
+                                            // Keep alphaSequenceResults so table shows!
                                         }}
                                         onResetToOriginal={resetData}
                                         onRerunWithAlpha={handleRerunWithAlpha}
+                                        selectedAlphaeFDR={selectedAlphaeFDR}
                                     />
+                                )}
+
+                                {/* eFDR Section - Inline Design with State Machine */}
+                                {analysisResults && analysisResults.mode === 'single' && analysisResults.fromAnalysisStep === 'nalpha' && (
+                                    <div className="bg-white rounded-lg shadow-md p-8 mb-6" data-efdr-section>
+                                        <h2 className="text-2xl font-bold text-gray-800 mb-3">
+                                            📊 Compute eFDR for Selected Alpha
+                                        </h2>
+                                        <p className="text-gray-600 mb-6">
+                                            Calculate empirical False Discovery Rate for α = {analysisResults.alpha.toFixed(6)} using permutation testing.
+                                        </p>
+
+                                        {/* State: idle - Show parameter inputs */}
+                                        {eFDRState === 'idle' && (
+                                            <div className="space-y-6">
+                                                {/* Sparsity Percentage input */}
+                                                <div>
+                                                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                                                        Expected Sparsity Percentage (%)
+                                                        <span className="text-red-500 ml-1">*</span>
+                                                    </label>
+                                                    <input
+                                                        type="number"
+                                                        min="0.1"
+                                                        max="100"
+                                                        step="0.1"
+                                                        value={eFDRParameters.sprcnt || ''}
+                                                        onChange={(e) => seteFDRParameters({...eFDRParameters, sprcnt: parseFloat(e.target.value)})}
+                                                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                                        placeholder="Enter percentage (e.g., 5)"
+                                                    />
+                                                    <p className="text-xs text-gray-500 mt-1">
+                                                        Percentage of total features expected to contain signal
+                                                    </p>
+                                                </div>
+
+                                                {/* Auto-calculated nsupp and pi0 display - combined panel */}
+                                                {eFDRParameters.sprcnt && eFDRParameters.sprcnt > 0 && (
+                                                    <div className="bg-blue-50 border border-blue-200 p-4 rounded-lg">
+                                                        <div className="grid grid-cols-2 gap-4">
+                                                            <div>
+                                                                <div className="text-lg font-semibold text-blue-800 mb-1">
+                                                                    Expected Support (nsupp): {Math.round((eFDRParameters.sprcnt / 100) * matrixInfo.P)}
+                                                                </div>
+                                                                <p className="text-sm text-blue-700">
+                                                                    Calculated as {eFDRParameters.sprcnt}% × {matrixInfo.P} = {Math.round((eFDRParameters.sprcnt / 100) * matrixInfo.P)} features
+                                                                </p>
+                                                            </div>
+                                                            <div>
+                                                                <div className="text-lg font-semibold text-blue-800 mb-1">
+                                                                    Calculated pi0 = {((matrixInfo.P - Math.round((eFDRParameters.sprcnt / 100) * matrixInfo.P)) / matrixInfo.P).toFixed(4)}
+                                                                </div>
+                                                                <p className="text-sm text-blue-700">
+                                                                    Proportion of null features (no signal)
+                                                                </p>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                )}
+
+                                                {/* Nperm input */}
+                                                <div>
+                                                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                                                        Number of Permutations (Nperm)
+                                                    </label>
+                                                    <input
+                                                        type="number"
+                                                        min="10"
+                                                        max="1000"
+                                                        step="1"
+                                                        value={eFDRParameters.Nperm ?? 25}
+                                                        onChange={(e) => {
+                                                            const val = e.target.value;
+                                                            seteFDRParameters({...eFDRParameters, Nperm: val === '' ? '' : parseInt(val)});
+                                                        }}
+                                                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                                    />
+                                                    <p className="text-xs text-gray-500 mt-1">
+                                                        More permutations provide better estimates but take longer (default: 25)
+                                                    </p>
+                                                </div>
+
+                                                {/* Calculate button */}
+                                                <div className="pt-4 flex justify-center">
+                                                    <button
+                                                        onClick={() => {
+                                                            const nsupp = Math.round((eFDRParameters.sprcnt / 100) * matrixInfo.P);
+                                                            handleRunSingleAlphaeFDR(nsupp);
+                                                        }}
+                                                        disabled={!eFDRParameters.sprcnt || eFDRParameters.sprcnt <= 0}
+                                                        className={`w-1/2 px-6 py-3 font-semibold rounded-lg transition-all duration-200 shadow-md ${
+                                                            eFDRParameters.sprcnt && eFDRParameters.sprcnt > 0
+                                                                ? 'bg-gradient-to-r from-purple-500 to-indigo-600 text-white hover:from-purple-600 hover:to-indigo-700'
+                                                                : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                                                        }`}
+                                                    >
+                                                        Calculate eFDR
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {/* State: running - Show progress */}
+                                        {eFDRState === 'running' && (
+                                            <div className="space-y-4" data-efdr-progress>
+                                                {/* Parameter Summary */}
+                                                <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
+                                                    <h4 className="text-sm font-semibold text-purple-800 mb-2">Analysis Parameters</h4>
+                                                    <div className="grid grid-cols-2 gap-3 text-sm">
+                                                        <div>
+                                                            <span className="text-purple-600 font-medium">Alpha (α):</span>
+                                                            <span className="text-gray-700 ml-2">{analysisResults.alpha?.toFixed(6)}</span>
+                                                        </div>
+                                                        <div>
+                                                            <span className="text-purple-600 font-medium">Sparsity %:</span>
+                                                            <span className="text-gray-700 ml-2">{eFDRParameters.sprcnt}%</span>
+                                                        </div>
+                                                        <div>
+                                                            <span className="text-purple-600 font-medium">Expected Support:</span>
+                                                            <span className="text-gray-700 ml-2">{Math.round((eFDRParameters.sprcnt / 100) * matrixInfo.P)}</span>
+                                                        </div>
+                                                        <div>
+                                                            <span className="text-purple-600 font-medium">Permutations:</span>
+                                                            <span className="text-gray-700 ml-2">{eFDRParameters.Nperm || 25}</span>
+                                                        </div>
+                                                        <div>
+                                                            <span className="text-purple-600 font-medium">pi0:</span>
+                                                            <span className="text-gray-700 ml-2">{eFDRParameters.sprcnt ? ((matrixInfo.P - Math.round((eFDRParameters.sprcnt / 100) * matrixInfo.P)) / matrixInfo.P).toFixed(4) : 'N/A'}</span>
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                {/* Progress Bar */}
+                                                {analysisProgress?.total > 0 && (
+                                                    <div className="w-full">
+                                                        <div className="flex justify-between text-sm text-gray-600 mb-2">
+                                                            <span>{analysisProgress.message || 'Processing...'}</span>
+                                                            <span>{Math.round((analysisProgress.current / analysisProgress.total) * 100)}%</span>
+                                                        </div>
+                                                        <div className="w-full bg-gray-200 rounded-full h-3">
+                                                            <div
+                                                                className="h-3 rounded-full transition-all duration-500 ease-in-out bg-purple-600"
+                                                                style={{ width: `${Math.min((analysisProgress.current / analysisProgress.total) * 100, 100)}%` }}
+                                                            ></div>
+                                                        </div>
+                                                    </div>
+                                                )}
+
+                                                {/* Cancel button */}
+                                                <div className="flex justify-center">
+                                                    <button
+                                                        onClick={() => {
+                                                            console.log('🛑 User clicked Cancel - stopping eFDR calculation');
+                                                            setIsAnalysisCancelled(true);
+                                                            isAnalysisCancelledRef.current = true; // Set ref immediately for async callbacks
+                                                            setIsRunningAnalysis(false);
+                                                            seteFDRState('idle');
+                                                            setAnalysisProgress({ current: 0, total: 0, message: '' });
+                                                        }}
+                                                        className="px-6 py-2 bg-red-500 text-white font-semibold rounded-lg hover:bg-red-600 transition-all duration-200 shadow-md"
+                                                    >
+                                                        Cancel Analysis
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {/* State: complete - Show results */}
+                                        {eFDRState === 'complete' && selectedAlphaeFDR && (
+                                            <div data-efdr-results>
+                                        <h3 className="text-lg font-semibold text-gray-800 mb-4">
+                                            ✅ eFDR Results for α = {analysisResults.alpha.toFixed(6)}
+                                        </h3>
+
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                                            {/* eFDR value card */}
+                                            <div className={`p-4 rounded-lg ${
+                                                selectedAlphaeFDR.eFDR <= 0.05 ? 'bg-green-50' :
+                                                selectedAlphaeFDR.eFDR <= 0.10 ? 'bg-yellow-50' :
+                                                'bg-red-50'
+                                            }`}>
+                                                <div className={`text-sm font-medium mb-1 ${
+                                                    selectedAlphaeFDR.eFDR <= 0.05 ? 'text-green-600' :
+                                                    selectedAlphaeFDR.eFDR <= 0.10 ? 'text-yellow-600' :
+                                                    'text-red-600'
+                                                }`}>
+                                                    Empirical FDR (eFDR)
+                                                </div>
+                                                <div className={`text-3xl font-bold ${
+                                                    selectedAlphaeFDR.eFDR <= 0.05 ? 'text-green-900' :
+                                                    selectedAlphaeFDR.eFDR <= 0.10 ? 'text-yellow-900' :
+                                                    'text-red-900'
+                                                }`}>
+                                                    {(selectedAlphaeFDR.eFDR * 100).toFixed(2)}%
+                                                </div>
+                                                <div className={`text-xs mt-1 ${
+                                                    selectedAlphaeFDR.eFDR <= 0.05 ? 'text-green-600' :
+                                                    selectedAlphaeFDR.eFDR <= 0.10 ? 'text-yellow-600' :
+                                                    'text-red-600'
+                                                }`}>
+                                                    {selectedAlphaeFDR.eFDR <= 0.05 ? '✓ Excellent (≤5%)' :
+                                                     selectedAlphaeFDR.eFDR <= 0.10 ? '⚠ Acceptable (≤10%)' :
+                                                     '⚠ High (>10%)'}
+                                                </div>
+                                            </div>
+
+                                            {/* Detection count card */}
+                                            <div className="bg-blue-50 p-4 rounded-lg">
+                                                <div className="text-sm text-blue-600 font-medium mb-1">
+                                                    Detections at This Alpha
+                                                </div>
+                                                <div className="text-3xl font-bold text-blue-900">
+                                                    {selectedAlphaeFDR.originalDetections}
+                                                </div>
+                                                <div className="text-xs text-blue-600 mt-1">
+                                                    out of {matrixInfo.P} total features
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {/* Parameter summary */}
+                                        <div className="bg-gray-50 p-4 rounded-lg space-y-2">
+                                            <h4 className="text-sm font-semibold text-gray-700 mb-2">Analysis Parameters</h4>
+                                            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+                                                <div>
+                                                    <span className="text-gray-600">π₀:</span>
+                                                    <span className="font-semibold text-gray-900 ml-1">
+                                                        {selectedAlphaeFDR.pi0.toFixed(4)}
+                                                    </span>
+                                                </div>
+                                                <div>
+                                                    <span className="text-gray-600">nsupp:</span>
+                                                    <span className="font-semibold text-gray-900 ml-1">
+                                                        {selectedAlphaeFDR.nsupp}
+                                                    </span>
+                                                </div>
+                                                <div>
+                                                    <span className="text-gray-600">Nperm:</span>
+                                                    <span className="font-semibold text-gray-900 ml-1">
+                                                        {selectedAlphaeFDR.Nperm}
+                                                    </span>
+                                                </div>
+                                                <div>
+                                                    <span className="text-gray-600">Alpha:</span>
+                                                    <span className="font-semibold text-gray-900 ml-1">
+                                                        {selectedAlphaeFDR.alpha.toFixed(6)}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {/* Interpretation guide */}
+                                        <div className="mt-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
+                                            <p className="text-sm text-blue-800">
+                                                <strong>Interpretation:</strong> An eFDR of {(selectedAlphaeFDR.eFDR * 100).toFixed(2)}%
+                                                means approximately {(selectedAlphaeFDR.eFDR * selectedAlphaeFDR.originalDetections).toFixed(1)}{' '}
+                                                of the {selectedAlphaeFDR.originalDetections} detected features are expected to be false discoveries.
+                                            </p>
+                                        </div>
+
+                                        {/* Recalculate button */}
+                                        <div className="mt-4 pt-4 border-t border-gray-200">
+                                            <button
+                                                onClick={() => {
+                                                    setSelectedAlphaeFDR(null);
+                                                    seteFDRState('idle'); // State machine transition: complete → idle
+                                                }}
+                                                className="px-4 py-2 text-sm bg-gray-100 text-gray-700 font-medium rounded-lg hover:bg-gray-200 transition-all duration-200"
+                                            >
+                                                Recalculate with Different Parameters
+                                            </button>
+                                        </div>
+                                    </div>
+                                        )}
+                                    </div>
                                 )}
                             </>
                         )}
@@ -7050,12 +8041,9 @@ Click to select`}
                             onAlphaSelected={setSelectedAlpha} 
                             selectedAlpha={selectedAlpha}
                             onRunSingleAlpha={async (alpha) => {
-                                console.log('eFDR chart selection for α =', alpha);
-
                                 // Check if we have pre-computed results for this alpha from eFDR
                                 const preComputed = alphaSequenceResults?.results?.find(r => Math.abs(r.alpha - alpha) < 1e-10);
                                 if (preComputed) {
-                                    console.log('✅ Using pre-computed eFDR result (100x faster)');
 
                                     // Validate that essential properties exist
                                     if (!preComputed.u || !Array.isArray(preComputed.u)) {
@@ -7073,6 +8061,7 @@ Click to select`}
                                             sparsity: preComputed.sparsity?.toString() || '0',
                                             iterations: preComputed.iterations || 0,
                                             converged: preComputed.converged || false,
+                                            fromAnalysisStep: 'efdr',  // Track it's from eFDR analysis
                                             parameters: {
                                                 analysisType: 'single',
                                                 alpha: preComputed.alpha,
@@ -7089,6 +8078,7 @@ Click to select`}
                                 try {
                                     setIsRunningAnalysis(true);
                                     const singleResults = await runSingleAlphaAnalysis(alpha);
+                                    singleResults.fromAnalysisStep = 'efdr';  // Track it's from eFDR analysis
                                     setAnalysisResults(singleResults);
                                     console.log('✅ SSVD analysis complete:', singleResults);
                                 } catch (error) {
