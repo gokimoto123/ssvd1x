@@ -319,6 +319,132 @@ const SSVDR1Algorithm = async function({ matrix, alpha, maxIter = 1000, toleranc
 };
 
 // ===================================================================
+// SINGLE-ALPHA PERMUTATION ANALYSIS
+// ===================================================================
+
+// Single-Alpha eFDR: Run permutations only (original SSVD already computed in N-alpha)
+const runPermutationsForAlpha = async function({ matrix, alpha, originalDetections, Nperm, nsupp, onProgress, isCancelled }) {
+    const P = matrix.length;
+    const N = matrix[0].length;
+    const pi0 = (P - nsupp) / P;
+
+    console.log(`[Worker] Running permutations: α=${alpha.toFixed(6)}, originalDetections=${originalDetections}, Nperm=${Nperm}`);
+
+    // Calculate alphaMax for adaptive parameters (rough estimate)
+    const alphaMax = Math.max(0.01, alpha * 2);
+    const alphaRatio = alpha / alphaMax;
+
+    let totalPermDetections = 0;
+    const totalRuns = Nperm;
+    let completedRuns = 0;
+
+    // Use small batch size for responsive cancellation
+    const batchSize = 4;
+
+    // Initialize progress
+    if (onProgress) {
+        onProgress(0, totalRuns, 'Starting permutation testing...');
+    }
+
+    // Process permutations in batches
+    for (let batchStart = 0; batchStart < Nperm; batchStart += batchSize) {
+        // Check for cancellation
+        if (isCancelled()) {
+            console.log('[Worker] Permutation testing cancelled');
+            throw new Error('Analysis cancelled by user');
+        }
+
+        const batchEnd = Math.min(batchStart + batchSize, Nperm);
+        const currentBatchSize = batchEnd - batchStart;
+
+        // Process batch in parallel
+        const batchPromises = [];
+        for (let perm = batchStart; perm < batchEnd; perm++) {
+            batchPromises.push(
+                (async () => {
+                    if (isCancelled()) {
+                        return 0;
+                    }
+
+                    const permutedMatrix = permuteMatrixRows(matrix);
+
+                    // Adaptive parameters based on alpha ratio
+                    const adaptiveMaxIter =
+                        alphaRatio < 0.05 ? 400 :
+                        alphaRatio < 0.2 ? 350 :
+                        alphaRatio < 0.5 ? 250 :
+                        alphaRatio < 0.75 ? 150 :
+                        50;
+
+                    const adaptiveTolerance =
+                        alphaRatio < 0.2 ? 0.01 :
+                        alphaRatio < 0.5 ? 0.005 :
+                        0.001;
+
+                    const permResult = await SSVDR1Algorithm({
+                        matrix: permutedMatrix,
+                        alpha,
+                        maxIter: adaptiveMaxIter,
+                        tolerance: adaptiveTolerance
+                    });
+
+                    if (isCancelled()) {
+                        return 0;
+                    }
+
+                    const permDetections = permResult.u.filter(val => Math.abs(val) > 1e-8).length;
+
+                    // Update progress
+                    completedRuns++;
+                    if (onProgress) {
+                        const currentPercent = Math.floor((completedRuns / totalRuns) * 100);
+                        const previousPercent = Math.floor(((completedRuns - 1) / totalRuns) * 100);
+                        const currentBucket = Math.floor(currentPercent / 5);
+                        const previousBucket = Math.floor(previousPercent / 5);
+
+                        if (currentBucket > previousBucket || completedRuns === totalRuns) {
+                            const progressMessage = `${currentPercent}% complete (${completedRuns}/${totalRuns} permutations)`;
+                            onProgress(completedRuns, totalRuns, progressMessage);
+                        }
+                    }
+
+                    return permDetections;
+                })()
+            );
+        }
+
+        // Wait for batch to complete
+        const batchResults = await Promise.all(batchPromises);
+
+        if (isCancelled()) {
+            throw new Error('Analysis cancelled by user');
+        }
+
+        // Sum detections from batch
+        const batchDetections = batchResults.reduce((sum, val) => sum + val, 0);
+        totalPermDetections += batchDetections;
+    }
+
+    // Calculate eFDR
+    const avgPermDetections = totalPermDetections / Nperm;
+    const eFDR = originalDetections > 0
+        ? Math.min(1.0, (pi0 * avgPermDetections) / originalDetections)
+        : 0;
+
+    console.log(`[Worker] Permutations complete: avgPermDetections=${avgPermDetections.toFixed(2)}, eFDR=${eFDR.toFixed(4)}`);
+
+    return {
+        alpha,
+        originalDetections,
+        avgPermDetections,
+        eFDR,
+        pi0,
+        Nperm,
+        totalPermDetections
+    };
+};
+
+// ===================================================================
 // FDR ANALYSIS - MAIN FUNCTION
 // ===================================================================
 
@@ -617,6 +743,37 @@ self.onmessage = async function(e) {
                     type: 'result',
                     id,
                     data: result
+                });
+                break;
+
+            case 'runPermutationsForAlpha':
+                // Single-alpha permutation testing (simpler than full FDR analysis)
+                self.cancelled = false;
+
+                // Set up progress callback
+                const onProgressSingle = (current, total, message) => {
+                    self.postMessage({
+                        type: 'progress',
+                        id,
+                        data: { current, total, message }
+                    });
+                };
+
+                // Set up cancellation check
+                const isCancelledSingle = () => self.cancelled || false;
+
+                // Run permutations for single alpha
+                const singleResult = await runPermutationsForAlpha({
+                    ...data,
+                    onProgress: onProgressSingle,
+                    isCancelled: isCancelledSingle
+                });
+
+                // Send result back to main thread
+                self.postMessage({
+                    type: 'result',
+                    id,
+                    data: singleResult
                 });
                 break;
 
