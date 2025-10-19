@@ -4,41 +4,41 @@ A web-based application for **Sparse Singular Value Decomposition (SSVD)** with 
 
 ## Overview
 
-SSVD1x is a scientific research tool that identifies a small subset of matrix rows (genes, proteins, methylation loci, etc.) from thousands that contain a common signal of interest using L1 regularization.
-
+SSVD1x is a scientific research tool that identifies a small subset of matrix rows (genes, proteins, methylation loci, etc.) from thousands that contain a common signal of interest using L1 regularization. It is especially useful in applications where a reduced number of variables are needed for downstream analysis, machine learning and modeling. 
 ## Features
 
 - **Data Upload**: Support for CSV and other tabular data formats
-- **SSVD Algorithm**: Sparse matrix factorization with L1 regularization
+- **SSVD Algorithm**: Sparse matrix factorization with rank-1 L1 regularization
 - **Multiple Analysis Modes**:
-  - **1-Alpha Analysis**: Sparse model based on pre-selected sparsity parameter, alpha
+  - **1-Alpha Analysis**: Sparse model based on pre-selected sparsity parameter (alpha)
   - **N-Alpha Analysis**: Sparse model selection based on detection dynamics across multiple alpha values
   - **eFDR Analysis**: Sparse model selection based on permutation-based eFDR dynamics across multiple alpha values
 - **Interactive Visualizations**: Heatmaps with 2-way hierarchical clustering, detection charts, alpha path analysis
 - **Comprehensive Export Suite**:
-  - PDF reports with analysis parameters and results
-  - Excel workbooks with detection tables
-  - PNG charts (composite heatmaps, dendrograms, detection plots)
+  - PDF reports that summarize analysis parameters and results
+  - CSV files of tables and text files
+  - PNG charts (composite heatmaps with dendrograms, eFDR, detection and gradient curves)
 - **Mathematical Validation**: Built-in regression test suite for algorithm verification
 
 ## Quick Start
 
-### Running the Application
+### Live Web App (Easiest)
+**No installation required!!** Access the app directly at:
+**https: https://gokimoto123.github.io/ssvd1x/**
+
+### Run Locally (Optional)
+If you prefer to run the app on your machine:
 
 ```bash
-# Start the web server (Python 3)
+# Download the repository files from GitHub
+# Then start a local web server (Python 3)
 python3 -m http.server 8000
 
-# Navigate to http://localhost:8000 in your browser
-# Open current_optimized.html
-```
-
 ### Alternative Methods
-```bash
+
 npm start
 npm run dev
 npm run serve
-```
 
 ## Technical Details
 
@@ -51,15 +51,15 @@ npm run serve
 
 ### Core Algorithms
 - `svd1()`: Power iteration method for singular value decomposition
-- `SSVDR1Algorithm()`: Sparse SVD with iterative soft thresholding
-- `runFDRAnalysis()`: Permutation-based FDR analysis
+- `SSVDR1Algorithm()`: Sparsifies top left singular vector with iterative soft thresholding while preserving dominant signal in the row-space of the data matrix
+- `runFDRAnalysis()`: Emprical False Discovery Rate (eFDR) based on permuationa testing 
 - `permuteMatrixRows()`: Matrix row permutation for null hypothesis testing
 
 ### Mathematical Background
-The application implements sparse SVD for biomarker discovery in P × N data matrices where:
+The application implements sparse rank-1 SVD for biomarker discovery in P × N data matrices where:
 - P >> N (many more variables than samples)
 - K << P (sparse embedded signal)
-- Typical applications include genomics, proteomics, and medical diagnostics
+- Typical applications include genomics, proteomics, medical diagnostics, machine learning
 
 ## File Structure
 
@@ -83,9 +83,11 @@ ssvd1x/
 
 - **Genomics**: Gene expression analysis
 - **Proteomics**: Protein biomarker discovery
-- **Medical Imaging**: Feature extraction
+- **Epigenomics**: DNA methylation loci
+- **Polygenic Risk Scoring**: Estimating disease risk a large number of curated SNPs 
+- **Medical Imaging**: Feature extraction from voxel neighborhoods
 - **Drug Discovery**: Target identification
-- **Machine Learning**: Feature selection in high-dimensional spaces
+- **Machine Learning**: Dimensionality reduction of large datasets
 
 ## Development
 
@@ -104,7 +106,7 @@ The application includes a comprehensive mathematical regression test suite acce
 **Version 1.0.0 (October 2025)**
 - Stable production release
 - Complete export functionality (PDF, Excel, PNG)
-- Dual analysis modes (N-Alpha and eFDR)
+- Multiple analysis modes (N-Alpha and eFDR)
 - Hierarchical clustering visualization
 - Mathematical regression test suite
 - Comprehensive UI with tooltips and consistent navigation
