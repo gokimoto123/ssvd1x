@@ -4,16 +4,17 @@ A web-based application for **Sparse Singular Value Decomposition (SSVD)** with 
 
 ## Overview
 
-SSVD1x is a scientific research tool that identifies a small subset of matrix rows (variables) from thousands that contain a common signal of interest using L1 regularization. The tool is particularly useful for high-dimensional data analysis where the number of variables greatly exceeds the number of samples.
+SSVD1x is a scientific research tool that identifies a small subset of matrix rows (genes, proteins, methylation loci, etc.) from thousands that contain a common signal of interest using L1 regularization.
 
 ## Features
 
 - **Data Upload**: Support for CSV and other tabular data formats
 - **SSVD Algorithm**: Sparse matrix factorization with L1 regularization
-- **Dual Analysis Modes**:
-  - **N-Alpha Analysis**: Fast detection analysis across multiple alpha values without eFDR estimation
-  - **eFDR Analysis**: Full statistical validation with permutation-based False Discovery Rate estimation
-- **Interactive Visualizations**: Heatmaps with hierarchical clustering, detection charts, alpha path analysis
+- **Multiple Analysis Modes**:
+  - **1-Alpha Analysis**: Sparse model based on pre-selected sparsity parameter, alpha
+  - **N-Alpha Analysis**: Sparse model selection based on detection dynamics across multiple alpha values
+  - **eFDR Analysis**: Sparse model selection based on permutation-based eFDR dynamics across multiple alpha values
+- **Interactive Visualizations**: Heatmaps with 2-way hierarchical clustering, detection charts, alpha path analysis
 - **Comprehensive Export Suite**:
   - PDF reports with analysis parameters and results
   - Excel workbooks with detection tables
