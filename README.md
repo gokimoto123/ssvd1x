@@ -79,15 +79,15 @@ ssvd1x/
 - Handles matrices up to ~1000×100 efficiently
 - Works offline once loaded
 
-## Applications
+## Applications based on sparse subsets of variables
 
 - **Genomics**: Gene expression analysis
 - **Proteomics**: Protein biomarker discovery
 - **Epigenomics**: DNA methylation loci
-- **Polygenic Risk Scoring**: Estimating disease risk a large number of curated SNPs 
-- **Medical Imaging**: Feature extraction from voxel neighborhoods
+- **Polygenic Risk Score**: Disease risk based on common genetic variation  
+- **Medical Imaging**: Feature extraction from voxels
 - **Drug Discovery**: Target identification
-- **Machine Learning**: Dimensionality reduction of large datasets
+- **Machine Learning**: Dimensionality reduction for machine learning
 
 ## Development
 
@@ -106,10 +106,10 @@ The application includes a comprehensive mathematical regression test suite acce
 **Version 1.0.0 (October 2025)**
 - Stable production release
 - Complete export functionality (PDF, Excel, PNG)
-- Multiple analysis modes (N-Alpha and eFDR)
+- Multiple analysis modes (1-Alpha, N-Alpha and eFDR)
 - Hierarchical clustering visualization
 - Mathematical regression test suite
-- Comprehensive UI with tooltips and consistent navigation
+- Comprehensive UI with tooltips and consistent navigation between different 
 
 ## Known Issues
 
@@ -133,7 +133,7 @@ Developed by gokimoto123
 
 If you use SSVD1x in your research, please cite:
 ```
-SSVD1x: A Web-Based Tool for Sparse Singular Value Decomposition Analysis
+SSVD1x: A Web-Based Tool for Sparse Rank-1 Singular Value Decomposition Analysis
 GitHub: https://github.com/gokimoto123/ssvd1x
 ```
 
