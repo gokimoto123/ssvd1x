@@ -1,6 +1,6 @@
 # SSVD1x - Sparse Singular Value Decomposition Analysis Tool
 
-A web-based application for **Sparse Singular Value Decomposition (SSVD)** with **empirical False Discovery Rate (eFDR)** analysis, designed for biomarker discovery in high-dimensional data matrices.
+A web-based application for **Sparse Singular Value Decomposition (SSVD)** with **empirical False Discovery Rate (eFDR)** analysis for biomarker discovery in high-dimensional datasets.
 
 ## Overview
 
