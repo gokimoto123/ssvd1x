@@ -13,7 +13,7 @@ SSVD1x is a scientific research tool that identifies a small subset of matrix ro
   - **1-Alpha Analysis**: Sparse model based on pre-selected sparsity parameter (alpha)
   - **N-Alpha Analysis**: Sparse model selection based on detection dynamics across multiple alpha values
   - **eFDR Analysis**: Sparse model selection based on permutation-based eFDR dynamics across multiple alpha values
-- **Interactive Visualization of Results**: Live eFDR, detection, detection gradient plots, interactive tables, scatter plot of sparse solutions, and heatmaps with 2-way hierarchical clustering
+- **Interactive Visualization of Results**: Live eFDR, detection, detection gradient plots, interactive eFDR tables, scatter plots of sparse solution, line plots of sparsely supported signal, and hierarchically clustered heatmap of sparse solutions
 - **Comprehensive Export Suite**:
   - PDF reports that summarize analysis parameters and results
   - CSV files of tables and text files
@@ -55,10 +55,10 @@ npm run serve
 - `permuteMatrixRows()`: Matrix row permutation for null hypothesis testing
 
 ### Mathematical Background
-The application implements sparse rank-1 SVD for biomarker discovery in P × N data matrices where:
+The application implements sparse matrix factorizations of rank-1 for biomarker discovery in P × N data matrices where:
 - P >> N (many more variables than samples)
 - K << P (sparse embedded signal)
-- Typical applications include genomics, proteomics, medical diagnostics, machine learning
+- Typical applications include genomics, proteomics, medical diagnostics, and machine learning
 
 ## File Structure
 
