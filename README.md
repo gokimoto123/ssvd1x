@@ -2,42 +2,45 @@
 
 A web-based application for **Sparse Singular Value Decomposition (SSVD)** with **empirical False Discovery Rate (eFDR)** analysis for biomarker discovery in high-dimensional datasets.
 
+**🌐 Live Application:** https://gokimoto123.github.io/ssvd1x/
+
 ## Overview
 
-SSVD1x is a scientific research tool that identifies a small subset of matrix rows (genes, proteins, methylation loci, etc.) from thousands that contain a common signal of interest using L1 regularization. It is especially useful in applications where a reduced number of variables are required for downstream analysis, modeling and machine learning. 
+SSVD1x is a scientific research tool that identifies a small subset of matrix rows from thousands that contain a common signal of interest using L1 regularization. It is especially useful in applications where a reduced number of variables are required for downstream analysis, modeling and machine learning.
+
 ## Features
 
 - **Data Upload**: Support for CSV and other tabular data formats
 - **SSVD Algorithm**: Sparse matrix factorization with rank-1, L1 regularization
 - **Multiple Analysis Modes**:
-  - **1-Alpha Analysis**: Sparse model based on pre-selected sparsity parameter (alpha)
-  - **N-Alpha Analysis**: Sparse model selection based on detection dynamics across multiple alpha values
-  - **eFDR Analysis**: Sparse model selection based on permutation-based eFDR dynamics across multiple alpha values
-- **Interactive Visualization of Results**: Live eFDR, detection, detection gradient plots, interactive eFDR tables, scatter plots of sparse solution, line plots of sparsely supported signal, and hierarchically clustered heatmap of sparse solutions
-- **Comprehensive Export Suite**:
-  - PDF reports that summarize analysis parameters and results
-  - CSV files of tables and text files
-  - PNG charts (composite heatmaps with dendrograms, eFDR, detection and gradient curves)
+  - **1-Alpha Analysis**: Sparse model based on pre-selected sparsity parameter
+  - **N-Alpha Analysis**: Sparse model selection based on detection dynamics
+  - **eFDR Analysis**: Sparse model selection based on permutation-based eFDR dynamics
+- **Interactive Visualization of Results**: Live eFDR, detection, detection gradient plots, interactive tables, scatter plots, line plots, and hierarchically clustered heatmaps
+- **Comprehensive Export Suite**: PDF reports, CSV files, PNG charts
+- **Mathematical Validation**: Built-in regression test suite for algorithm verification
 
 ## Quick Start
 
 ### Live Web App (Easiest)
-**No installation required!!** Access the app directly at:
-**https: https://gokimoto123.github.io/ssvd1x/**
+
+**No installation required!** Access the app directly at:
+**https://gokimoto123.github.io/ssvd1x/**
+
+Simply visit the link, upload your CSV data matrix, and start analyzing.
 
 ### Run Locally (Optional)
+
 If you prefer to run the app on your machine:
 
 ```bash
-# Download the repository files from GitHub
+# Download repository files from GitHub
 # Then start a local web server (Python 3)
 python3 -m http.server 8000
 
-### Alternative Methods
-
-npm start
-npm run dev
-npm run serve
+# Open your browser and navigate to:
+# http://localhost:8000/index.html
+```
 
 ## Technical Details
 
@@ -50,26 +53,28 @@ npm run serve
 
 ### Core Algorithms
 - `svd1()`: Power iteration method for singular value decomposition
-- `SSVDR1Algorithm()`: Sparsifies top left singular vector with iterative soft thresholding while preserving dominant signal in the row-space of the data matrix
-- `runFDRAnalysis()`: Emprical False Discovery Rate (eFDR) based on permuationa testing 
+- `SSVDR1Algorithm()`: Sparse SVD with iterative soft thresholding
+- `runFDRAnalysis()`: Permutation-based FDR analysis
 - `permuteMatrixRows()`: Matrix row permutation for null hypothesis testing
 
 ### Mathematical Background
-The application implements sparse matrix factorizations of rank-1 for biomarker discovery in P × N data matrices where:
+The application implements sparse SVD for biomarker discovery in P × N data matrices where:
 - P >> N (many more variables than samples)
 - K << P (sparse embedded signal)
-- Typical applications include genomics, proteomics, medical diagnostics, and machine learning
+- Typical applications include genomics, proteomics, and medical diagnostics
 
-## File Structure
+## Repository Structure
 
 ```
 ssvd1x/
-├── current_optimized.html    # Main application file
-├── fdr-worker.js             # Web Worker for parallel FDR computation
-├── CLAUDE.md                 # Development documentation
+├── index.html                # Main application file (single-page React app)
+├── fdr-worker.js             # Web Worker for parallel permutation testing
+├── CLAUDE.md                 # Development documentation and guidelines
 ├── README.md                 # This file
 └── LICENSE                   # MIT License
 ```
+
+**Note for developers:** The local development version may be named `current_optimized.html`, but the deployed version on GitHub Pages is `index.html`.
 
 ## System Requirements
 
@@ -78,15 +83,13 @@ ssvd1x/
 - Handles matrices up to ~1000×100 efficiently
 - Works offline once loaded
 
-## Applications based on sparse subsets of variables
+## Applications
 
 - **Genomics**: Gene expression analysis
 - **Proteomics**: Protein biomarker discovery
-- **Epigenomics**: DNA methylation loci
-- **Polygenic Risk Score**: Disease risk based on common genetic variation  
-- **Medical Imaging**: Feature extraction from voxels
+- **Medical Imaging**: Feature extraction
 - **Drug Discovery**: Target identification
-- **Machine Learning**: Dimensionality reduction for machine learning
+- **Machine Learning**: Feature selection in high-dimensional spaces
 
 ## Development
 
@@ -105,10 +108,10 @@ The application includes a comprehensive mathematical regression test suite acce
 **Version 1.0.0 (October 2025)**
 - Stable production release
 - Complete export functionality (PDF, Excel, PNG)
-- Multiple analysis modes (1-Alpha, N-Alpha and eFDR)
+- Multiple analysis modes (1-Alpha, N-Alpha, and eFDR)
 - Hierarchical clustering visualization
 - Mathematical regression test suite
-- Comprehensive UI with tooltips and consistent navigation between different 
+- Comprehensive UI with tooltips and consistent navigation
 
 ## Known Issues
 
@@ -132,7 +135,7 @@ Developed by gokimoto123
 
 If you use SSVD1x in your research, please cite:
 ```
-SSVD1x: A Web-Based Tool for the Sparse Singular Value Decomposition Analysis of High Dimensional Data
+SSVD1x: A Web-Based Tool for Sparse Singular Value Decomposition Analysis
 GitHub: https://github.com/gokimoto123/ssvd1x
 ```
 
