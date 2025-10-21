@@ -8,7 +8,7 @@ SSVD1x is a scientific research tool that identifies a small subset of matrix ro
 ## Features
 
 - **Data Upload**: Support for CSV and other tabular data formats
-- **SSVD Algorithm**: Sparse matrix factorization with rank-1 L1 regularization
+- **SSVD Algorithm**: Sparse matrix factorization with rank-1, L1 regularization
 - **Multiple Analysis Modes**:
   - **1-Alpha Analysis**: Sparse model based on pre-selected sparsity parameter (alpha)
   - **N-Alpha Analysis**: Sparse model selection based on detection dynamics across multiple alpha values
