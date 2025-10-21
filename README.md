@@ -13,12 +13,11 @@ SSVD1x is a scientific research tool that identifies a small subset of matrix ro
   - **1-Alpha Analysis**: Sparse model based on pre-selected sparsity parameter (alpha)
   - **N-Alpha Analysis**: Sparse model selection based on detection dynamics across multiple alpha values
   - **eFDR Analysis**: Sparse model selection based on permutation-based eFDR dynamics across multiple alpha values
-- **Interactive Visualizations**: Heatmaps with 2-way hierarchical clustering, detection charts, alpha path analysis
+- **Interactive Visualization of Results**: Live eFDR, detection, detection gradient plots, interactive tables, scatter plot of sparse solutions, and heatmaps with 2-way hierarchical clustering
 - **Comprehensive Export Suite**:
   - PDF reports that summarize analysis parameters and results
   - CSV files of tables and text files
   - PNG charts (composite heatmaps with dendrograms, eFDR, detection and gradient curves)
-- **Mathematical Validation**: Built-in regression test suite for algorithm verification
 
 ## Quick Start
 
