@@ -132,7 +132,7 @@ Developed by gokimoto123
 
 If you use SSVD1x in your research, please cite:
 ```
-SSVD1x: A Web-Based Tool for Sparse Rank-1 Singular Value Decomposition Analysis
+SSVD1x: A Web-Based Tool for the Sparse Singular Value Decomposition Analysis of High Dimensional Data
 GitHub: https://github.com/gokimoto123/ssvd1x
 ```
 
