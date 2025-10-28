@@ -6964,6 +6964,13 @@ Click to select`}
                         const results = await runSingleAlphaAnalysis(config.alpha);
                         setAnalysisResults(results);
                         console.log(`SSVD complete: ${results.detections} detections, ${results.sparsity}% sparsity, ${results.iterations} iterations`);
+                        console.log('🔍 DEBUG - analysisResults properties:', {
+                            mode: results.mode,
+                            fromAnalysisStep: results.fromAnalysisStep,
+                            alpha: results.alpha,
+                            detections: results.detections,
+                            hasDetectedIndices: !!results.detectedIndices
+                        });
                     } else if (config.analysisMode === 'multi') {
                         // Multi-alpha analysis
                         const alphaValues = [];
@@ -7705,6 +7712,15 @@ Click to select`}
                                 )}
 
                                 {/* eFDR Section - Inline Design with State Machine */}
+                                {(() => {
+                                    console.log('🔍 eFDR Section Evaluation:', {
+                                        hasResults: !!analysisResults,
+                                        mode: analysisResults?.mode,
+                                        fromAnalysisStep: analysisResults?.fromAnalysisStep,
+                                        shouldShow: analysisResults && analysisResults.mode === 'single' && (analysisResults.fromAnalysisStep === 'nalpha' || analysisResults.fromAnalysisStep === 'single')
+                                    });
+                                    return null;
+                                })()}
                                 {analysisResults && analysisResults.mode === 'single' && (analysisResults.fromAnalysisStep === 'nalpha' || analysisResults.fromAnalysisStep === 'single') && (
                                     <div className="bg-white rounded-lg shadow-md p-8 mb-6" data-efdr-section>
                                         <h2 className="text-2xl font-bold text-gray-800 mb-3">
