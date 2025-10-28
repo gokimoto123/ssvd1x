@@ -6838,6 +6838,7 @@ Click to select`}
                     converged: results.converged,
                     convergenceInfo: results.convergenceInfo,
                     elapsedTime: elapsedTimeFormatted,
+                    fromAnalysisStep: 'single',
                     parameters: {
                         analysisType: 'single',
                         alpha: alpha,
@@ -7704,7 +7705,7 @@ Click to select`}
                                 )}
 
                                 {/* eFDR Section - Inline Design with State Machine */}
-                                {analysisResults && analysisResults.mode === 'single' && analysisResults.fromAnalysisStep === 'nalpha' && (
+                                {analysisResults && analysisResults.mode === 'single' && (analysisResults.fromAnalysisStep === 'nalpha' || analysisResults.fromAnalysisStep === 'single') && (
                                     <div className="bg-white rounded-lg shadow-md p-8 mb-6" data-efdr-section>
                                         <h2 className="text-2xl font-bold text-gray-800 mb-3">
                                             📊 Compute eFDR for Selected Alpha
