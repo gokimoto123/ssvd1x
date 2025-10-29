@@ -7362,7 +7362,33 @@ Click to select`}
                                 onReset={resetData}
                             />
                         )}
-                        
+
+                        {/* GLOBAL DEBUG PANEL - Always visible when results exist */}
+                        {analysisResults && (
+                            <div className="bg-red-100 border-4 border-red-500 rounded-lg p-6 mb-6 mx-6">
+                                <h2 className="text-xl font-bold text-red-900 mb-3">🔴 GLOBAL DEBUG (Always Visible)</h2>
+                                <div className="text-sm text-red-900 space-y-2 font-mono">
+                                    <div><strong>matrix:</strong> {matrix ? 'EXISTS' : 'null'}</div>
+                                    <div><strong>matrixInfo:</strong> {matrixInfo ? 'EXISTS' : 'null'}</div>
+                                    <div><strong>showAnalysisPanel:</strong> {String(showAnalysisPanel)}</div>
+                                    <div><strong>analysisStep:</strong> {String(analysisStep)}</div>
+                                    <div><strong>isRunningAnalysis:</strong> {String(isRunningAnalysis)}</div>
+                                    <div><strong>analysisResults:</strong> {analysisResults ? 'EXISTS' : 'null'}</div>
+                                    <div><strong>analysisResults.mode:</strong> {analysisResults?.mode || 'undefined'}</div>
+                                    <div className="mt-3 pt-3 border-t-2 border-red-400">
+                                        <strong>WHY NOT SHOWING:</strong>
+                                        <div className="ml-4 mt-1">
+                                            {!matrix && <div>❌ No matrix</div>}
+                                            {!matrixInfo && <div>❌ No matrixInfo</div>}
+                                            {!showAnalysisPanel && <div>❌ showAnalysisPanel is false</div>}
+                                            {analysisStep !== 'single' && <div>❌ analysisStep is not 'single' (it's: {String(analysisStep)})</div>}
+                                            {matrix && matrixInfo && showAnalysisPanel && analysisStep === 'single' && <div>✅ All conditions MET!</div>}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
                         {/* Parameter Configuration for Selected Analysis Type */}
                         {matrix && matrixInfo && showAnalysisPanel && analysisStep === 'single' && (
                             <>
