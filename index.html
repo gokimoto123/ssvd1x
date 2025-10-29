@@ -1118,9 +1118,11 @@
                 eFDR,
                 pi0,
                 avgPermDetections,
+                expectedFalsePositives: pi0 * avgPermDetections, // Add for display
+                actualDetections: originalDetections, // Rename for consistency with display
                 Nperm,
                 nsupp,
-                originalDetections, // Include for display calculations
+                originalDetections, // Keep for backwards compatibility
                 alpha // Include alpha for complete display
             };
         };
