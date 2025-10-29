@@ -6848,19 +6848,31 @@ Click to select`}
             };
 
             const handleRunSingleAlphaeFDR = async (nsupp) => {
-                if (!nsupp || !analysisResults) return;
+                try {
+                    console.log('=== handleRunSingleAlphaeFDR START ===');
+                    if (!nsupp || !analysisResults) {
+                        console.log('Early return: nsupp or analysisResults missing');
+                        return;
+                    }
 
-                console.log('Starting single-alpha eFDR calculation...');
-                console.log('Alpha:', analysisResults.alpha);
-                console.log('Original detections:', analysisResults.nonZeroIndices?.length || analysisResults.detectedIndices?.length);
-                console.log('nsupp:', nsupp);
-                console.log('Nperm:', eFDRParameters.Nperm);
+                    console.log('Starting single-alpha eFDR calculation...');
+                    console.log('Alpha:', analysisResults.alpha);
+                    console.log('Original detections:', analysisResults.nonZeroIndices?.length || analysisResults.detectedIndices?.length);
+                    console.log('nsupp:', nsupp);
+                    console.log('Nperm:', eFDRParameters.Nperm);
 
-                setSelectedAlphaeFDR(null); // Clear previous results
-                seteFDRState('running'); // State machine transition: idle → running
-                setIsRunningAnalysis(true);
-                setIsAnalysisCancelled(false);
-                isAnalysisCancelledRef.current = false; // Reset ref for new analysis
+                    console.log('Setting state: clearing eFDR, setting to running...');
+                    setSelectedAlphaeFDR(null); // Clear previous results
+                    seteFDRState('running'); // State machine transition: idle → running
+                    setIsRunningAnalysis(true);
+                    setIsAnalysisCancelled(false);
+                    isAnalysisCancelledRef.current = false; // Reset ref for new analysis
+                    console.log('State set successfully');
+                } catch (error) {
+                    console.error('❌ ERROR in handleRunSingleAlphaeFDR setup:', error);
+                    alert('Setup error: ' + error.message + '\nStack: ' + error.stack);
+                    throw error;
+                }
 
                 // Initialize progress with known total
                 const Nperm = eFDRParameters.Nperm || 25;
