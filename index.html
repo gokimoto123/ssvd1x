@@ -7501,9 +7501,20 @@ Click to select`}
                                                 {/* Calculate button */}
                                                 <div className="pt-4 flex justify-center">
                                                     <button
-                                                        onClick={() => {
-                                                            const nsupp = analysisResults.nonZeroIndices?.length || analysisResults.detectedIndices?.length || 0;
-                                                            handleRunSingleAlphaeFDR(nsupp);
+                                                        onClick={async () => {
+                                                            try {
+                                                                console.log('🔘 Calculate eFDR button clicked (PURE SINGLE-ALPHA)');
+                                                                const nsupp = analysisResults.detectedIndices?.length || 0;
+                                                                console.log('nsupp calculated:', nsupp);
+                                                                if (nsupp === 0) {
+                                                                    alert('Error: No detections found. Cannot calculate eFDR.');
+                                                                    return;
+                                                                }
+                                                                await handleRunSingleAlphaeFDR(nsupp);
+                                                            } catch (error) {
+                                                                console.error('❌ Button click error:', error);
+                                                                alert('Error starting eFDR calculation: ' + error.message);
+                                                            }
                                                         }}
                                                         disabled={false}
                                                         className="w-1/2 px-6 py-3 font-semibold rounded-lg transition-all duration-200 shadow-md bg-gradient-to-r from-purple-500 to-indigo-600 text-white hover:from-purple-600 hover:to-indigo-700"
@@ -7523,11 +7534,11 @@ Click to select`}
                                                     <div className="grid grid-cols-2 gap-3 text-sm">
                                                         <div>
                                                             <span className="text-purple-600 font-medium">Alpha (α):</span>
-                                                            <span className="text-gray-700 ml-2">{analysisResults.alpha?.toFixed(6)}</span>
+                                                            <span className="text-gray-700 ml-2">{analysisResults?.alpha?.toFixed(6) || 'N/A'}</span>
                                                         </div>
                                                         <div>
                                                             <span className="text-purple-600 font-medium">Actual Detections:</span>
-                                                            <span className="text-gray-700 ml-2">{analysisResults.nonZeroIndices?.length || analysisResults.detectedIndices?.length || 0}</span>
+                                                            <span className="text-gray-700 ml-2">{analysisResults?.detectedIndices?.length || 0}</span>
                                                         </div>
                                                         <div>
                                                             <span className="text-purple-600 font-medium">Permutations:</span>
@@ -7556,12 +7567,16 @@ Click to select`}
                                                 <div className="flex justify-center">
                                                     <button
                                                         onClick={() => {
-                                                            console.log('🛑 User clicked Cancel - stopping eFDR calculation');
-                                                            setIsAnalysisCancelled(true);
-                                                            isAnalysisCancelledRef.current = true;
-                                                            setIsRunningAnalysis(false);
-                                                            seteFDRState('idle');
-                                                            setAnalysisProgress({ current: 0, total: 0, message: '' });
+                                                            try {
+                                                                console.log('🛑 User clicked Cancel - stopping eFDR calculation');
+                                                                setIsAnalysisCancelled(true);
+                                                                isAnalysisCancelledRef.current = true;
+                                                                setIsRunningAnalysis(false);
+                                                                seteFDRState('idle');
+                                                                setAnalysisProgress({ current: 0, total: 0, message: '' });
+                                                            } catch (error) {
+                                                                console.error('Cancel error:', error);
+                                                            }
                                                         }}
                                                         className="px-6 py-2 bg-red-500 text-white font-semibold rounded-lg hover:bg-red-600 transition-all duration-200 shadow-md"
                                                     >
