@@ -7297,6 +7297,23 @@ Click to select`}
             
             return (
                 <div className="min-h-screen bg-gray-50">
+                    {/* VERSION INDICATOR - Always visible */}
+                    <div style={{
+                        position: 'fixed',
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        backgroundColor: '#f59e0b',
+                        color: 'white',
+                        padding: '8px',
+                        textAlign: 'center',
+                        fontWeight: 'bold',
+                        zIndex: 9999,
+                        fontSize: '14px'
+                    }}>
+                        🐛 DEBUG BUILD e1e0dad - eFDR for Single-Alpha (Remove after testing)
+                    </div>
+                    <div style={{height: '40px'}}></div> {/* Spacer for fixed header */}
                     {/* Main Content */}
                     <div className="max-w-7xl mx-auto px-6 py-8">
                         {/* CSV Upload Component */}
