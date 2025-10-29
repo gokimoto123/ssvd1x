@@ -7739,6 +7739,7 @@ Click to select`}
                                             <div>alpha: <strong>{analysisResults.alpha || 'undefined'}</strong></div>
                                             <div>detections: <strong>{analysisResults.detections || analysisResults.detectedIndices?.length || 0}</strong></div>
                                             <div>shouldShoweFDR: <strong>{String(analysisResults.mode === 'single' && (analysisResults.fromAnalysisStep === 'nalpha' || analysisResults.fromAnalysisStep === 'single'))}</strong></div>
+                                            <div className="mt-3 text-xs">ALL KEYS: <strong>{Object.keys(analysisResults).join(', ')}</strong></div>
                                         </div>
                                     </div>
                                 )}
