@@ -6848,31 +6848,19 @@ Click to select`}
             };
 
             const handleRunSingleAlphaeFDR = async (nsupp) => {
-                try {
-                    console.log('=== handleRunSingleAlphaeFDR START ===');
-                    if (!nsupp || !analysisResults) {
-                        console.log('Early return: nsupp or analysisResults missing');
-                        return;
-                    }
+                if (!nsupp || !analysisResults) return;
 
-                    console.log('Starting single-alpha eFDR calculation...');
-                    console.log('Alpha:', analysisResults.alpha);
-                    console.log('Original detections:', analysisResults.nonZeroIndices?.length || analysisResults.detectedIndices?.length);
-                    console.log('nsupp:', nsupp);
-                    console.log('Nperm:', eFDRParameters.Nperm);
+                console.log('Starting single-alpha eFDR calculation...');
+                console.log('Alpha:', analysisResults.alpha);
+                console.log('Original detections:', analysisResults.nonZeroIndices?.length || analysisResults.detectedIndices?.length);
+                console.log('nsupp:', nsupp);
+                console.log('Nperm:', eFDRParameters.Nperm);
 
-                    console.log('Setting state: clearing eFDR, setting to running...');
-                    setSelectedAlphaeFDR(null); // Clear previous results
-                    seteFDRState('running'); // State machine transition: idle → running
-                    setIsRunningAnalysis(true);
-                    setIsAnalysisCancelled(false);
-                    isAnalysisCancelledRef.current = false; // Reset ref for new analysis
-                    console.log('State set successfully');
-                } catch (error) {
-                    console.error('❌ ERROR in handleRunSingleAlphaeFDR setup:', error);
-                    alert('Setup error: ' + error.message + '\nStack: ' + error.stack);
-                    throw error;
-                }
+                setSelectedAlphaeFDR(null); // Clear previous results
+                seteFDRState('running'); // State machine transition: idle → running
+                setIsRunningAnalysis(true);
+                setIsAnalysisCancelled(false);
+                isAnalysisCancelledRef.current = false; // Reset ref for new analysis
 
                 // Initialize progress with known total
                 const Nperm = eFDRParameters.Nperm || 25;
@@ -6976,13 +6964,6 @@ Click to select`}
                         const results = await runSingleAlphaAnalysis(config.alpha);
                         setAnalysisResults(results);
                         console.log(`SSVD complete: ${results.detections} detections, ${results.sparsity}% sparsity, ${results.iterations} iterations`);
-                        console.log('🔍 DEBUG - analysisResults properties:', {
-                            mode: results.mode,
-                            fromAnalysisStep: results.fromAnalysisStep,
-                            alpha: results.alpha,
-                            detections: results.detections,
-                            hasDetectedIndices: !!results.detectedIndices
-                        });
                     } else if (config.analysisMode === 'multi') {
                         // Multi-alpha analysis
                         const alphaValues = [];
@@ -7309,23 +7290,6 @@ Click to select`}
             
             return (
                 <div className="min-h-screen bg-gray-50">
-                    {/* VERSION INDICATOR - Always visible */}
-                    <div style={{
-                        position: 'fixed',
-                        top: 0,
-                        left: 0,
-                        right: 0,
-                        backgroundColor: '#f59e0b',
-                        color: 'white',
-                        padding: '8px',
-                        textAlign: 'center',
-                        fontWeight: 'bold',
-                        zIndex: 9999,
-                        fontSize: '14px'
-                    }}>
-                        🐛 DEBUG BUILD e1e0dad - eFDR for Single-Alpha (Remove after testing)
-                    </div>
-                    <div style={{height: '40px'}}></div> {/* Spacer for fixed header */}
                     {/* Main Content */}
                     <div className="max-w-7xl mx-auto px-6 py-8">
                         {/* CSV Upload Component */}
@@ -7375,32 +7339,6 @@ Click to select`}
                             />
                         )}
 
-                        {/* GLOBAL DEBUG PANEL - Always visible when results exist */}
-                        {analysisResults && (
-                            <div className="bg-red-100 border-4 border-red-500 rounded-lg p-6 mb-6 mx-6">
-                                <h2 className="text-xl font-bold text-red-900 mb-3">🔴 GLOBAL DEBUG (Always Visible)</h2>
-                                <div className="text-sm text-red-900 space-y-2 font-mono">
-                                    <div><strong>matrix:</strong> {matrix ? 'EXISTS' : 'null'}</div>
-                                    <div><strong>matrixInfo:</strong> {matrixInfo ? 'EXISTS' : 'null'}</div>
-                                    <div><strong>showAnalysisPanel:</strong> {String(showAnalysisPanel)}</div>
-                                    <div><strong>analysisStep:</strong> {String(analysisStep)}</div>
-                                    <div><strong>isRunningAnalysis:</strong> {String(isRunningAnalysis)}</div>
-                                    <div><strong>analysisResults:</strong> {analysisResults ? 'EXISTS' : 'null'}</div>
-                                    <div><strong>analysisResults.mode:</strong> {analysisResults?.mode || 'undefined'}</div>
-                                    <div className="mt-3 pt-3 border-t-2 border-red-400">
-                                        <strong>WHY NOT SHOWING:</strong>
-                                        <div className="ml-4 mt-1">
-                                            {!matrix && <div>❌ No matrix</div>}
-                                            {!matrixInfo && <div>❌ No matrixInfo</div>}
-                                            {!showAnalysisPanel && <div>❌ showAnalysisPanel is false</div>}
-                                            {analysisStep !== 'single' && <div>❌ analysisStep is not 'single' (it's: {String(analysisStep)})</div>}
-                                            {matrix && matrixInfo && showAnalysisPanel && analysisStep === 'single' && <div>✅ All conditions MET!</div>}
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        )}
-
                         {/* Parameter Configuration for Selected Analysis Type */}
                         {matrix && matrixInfo && showAnalysisPanel && analysisStep === 'single' && (
                             <>
@@ -7442,21 +7380,6 @@ Click to select`}
                                         onRerunWithAlpha={handleRerunWithAlpha}
                                         selectedAlphaeFDR={selectedAlphaeFDR}
                                     />
-                                )}
-
-                                {/* DEBUG PANEL for pure single-alpha - VISIBLE ON SCREEN */}
-                                {!isRunningAnalysis && analysisResults && analysisResults.mode === 'single' && (
-                                    <div className="bg-yellow-100 border-2 border-yellow-500 rounded-lg p-4 mb-6">
-                                        <h3 className="text-lg font-bold text-yellow-900 mb-2">🐛 DEBUG INFO - PURE SINGLE ALPHA</h3>
-                                        <div className="text-sm text-yellow-900 space-y-1 font-mono">
-                                            <div>mode: <strong>{analysisResults.mode || 'undefined'}</strong></div>
-                                            <div>fromAnalysisStep: <strong>{analysisResults.fromAnalysisStep || 'undefined'}</strong></div>
-                                            <div>alpha: <strong>{analysisResults.alpha || 'undefined'}</strong></div>
-                                            <div>detections: <strong>{analysisResults.detections || analysisResults.detectedIndices?.length || 0}</strong></div>
-                                            <div>shouldShoweFDR: <strong>{String(analysisResults.mode === 'single' && (analysisResults.fromAnalysisStep === 'nalpha' || analysisResults.fromAnalysisStep === 'single'))}</strong></div>
-                                            <div className="mt-3 text-xs">ALL KEYS: <strong>{Object.keys(analysisResults).join(', ')}</strong></div>
-                                        </div>
-                                    </div>
                                 )}
 
                                 {/* eFDR Section for pure single-alpha */}
@@ -8364,21 +8287,6 @@ Click to select`}
             componentDidCatch(error, errorInfo) {
                 console.error('🔴 React Error Boundary caught error:', error, errorInfo);
                 this.setState({ error, errorInfo });
-
-                // Show detailed error to user on mobile
-                const errorDetails = `
-ERROR CAUGHT:
-${error.toString()}
-
-COMPONENT STACK:
-${errorInfo.componentStack}
-
-MESSAGE: ${error.message}
-
-This error will help diagnose the crash!
-                `.trim();
-
-                alert(errorDetails);
             }
 
             render() {
