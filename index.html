@@ -8350,8 +8350,81 @@ Click to select`}
             );
         };
 
-        // Render the application
-        ReactDOM.render(<App />, document.getElementById('root'));
+        // Error Boundary to catch React rendering errors
+        class ErrorBoundary extends React.Component {
+            constructor(props) {
+                super(props);
+                this.state = { hasError: false, error: null, errorInfo: null };
+            }
+
+            static getDerivedStateFromError(error) {
+                return { hasError: true };
+            }
+
+            componentDidCatch(error, errorInfo) {
+                console.error('🔴 React Error Boundary caught error:', error, errorInfo);
+                this.setState({ error, errorInfo });
+
+                // Show detailed error to user on mobile
+                const errorDetails = `
+ERROR CAUGHT:
+${error.toString()}
+
+COMPONENT STACK:
+${errorInfo.componentStack}
+
+MESSAGE: ${error.message}
+
+This error will help diagnose the crash!
+                `.trim();
+
+                alert(errorDetails);
+            }
+
+            render() {
+                if (this.state.hasError) {
+                    return (
+                        <div style={{
+                            padding: '20px',
+                            backgroundColor: '#fee',
+                            border: '2px solid #f00',
+                            margin: '20px',
+                            borderRadius: '8px'
+                        }}>
+                            <h1 style={{ color: '#c00' }}>⚠️ Application Error</h1>
+                            <p><strong>Error:</strong> {this.state.error && this.state.error.toString()}</p>
+                            <details style={{ marginTop: '20px', whiteSpace: 'pre-wrap', fontSize: '12px' }}>
+                                <summary>Error Details (Click to expand)</summary>
+                                {this.state.errorInfo && this.state.errorInfo.componentStack}
+                            </details>
+                            <button
+                                onClick={() => window.location.reload()}
+                                style={{
+                                    marginTop: '20px',
+                                    padding: '10px 20px',
+                                    backgroundColor: '#c00',
+                                    color: 'white',
+                                    border: 'none',
+                                    borderRadius: '4px',
+                                    cursor: 'pointer'
+                                }}
+                            >
+                                Reload Page
+                            </button>
+                        </div>
+                    );
+                }
+                return this.props.children;
+            }
+        }
+
+        // Render the application with Error Boundary
+        ReactDOM.render(
+            <ErrorBoundary>
+                <App />
+            </ErrorBoundary>,
+            document.getElementById('root')
+        );
     </script>
 </body>
 </html>
