@@ -7712,15 +7712,19 @@ Click to select`}
                                 )}
 
                                 {/* eFDR Section - Inline Design with State Machine */}
-                                {(() => {
-                                    console.log('🔍 eFDR Section Evaluation:', {
-                                        hasResults: !!analysisResults,
-                                        mode: analysisResults?.mode,
-                                        fromAnalysisStep: analysisResults?.fromAnalysisStep,
-                                        shouldShow: analysisResults && analysisResults.mode === 'single' && (analysisResults.fromAnalysisStep === 'nalpha' || analysisResults.fromAnalysisStep === 'single')
-                                    });
-                                    return null;
-                                })()}
+                                {/* DEBUG PANEL - VISIBLE ON SCREEN */}
+                                {analysisResults && (
+                                    <div className="bg-yellow-100 border-2 border-yellow-500 rounded-lg p-4 mb-6">
+                                        <h3 className="text-lg font-bold text-yellow-900 mb-2">🐛 DEBUG INFO (Remove after testing)</h3>
+                                        <div className="text-sm text-yellow-900 space-y-1 font-mono">
+                                            <div>mode: <strong>{analysisResults.mode || 'undefined'}</strong></div>
+                                            <div>fromAnalysisStep: <strong>{analysisResults.fromAnalysisStep || 'undefined'}</strong></div>
+                                            <div>alpha: <strong>{analysisResults.alpha || 'undefined'}</strong></div>
+                                            <div>detections: <strong>{analysisResults.detections || analysisResults.detectedIndices?.length || 0}</strong></div>
+                                            <div>shouldShoweFDR: <strong>{String(analysisResults.mode === 'single' && (analysisResults.fromAnalysisStep === 'nalpha' || analysisResults.fromAnalysisStep === 'single'))}</strong></div>
+                                        </div>
+                                    </div>
+                                )}
                                 {analysisResults && analysisResults.mode === 'single' && (analysisResults.fromAnalysisStep === 'nalpha' || analysisResults.fromAnalysisStep === 'single') && (
                                     <div className="bg-white rounded-lg shadow-md p-8 mb-6" data-efdr-section>
                                         <h2 className="text-2xl font-bold text-gray-800 mb-3">
