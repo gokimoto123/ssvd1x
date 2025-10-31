@@ -6948,6 +6948,16 @@ Click to select`}
                 // Small delay to ensure UI renders before starting intensive computation
                 await new Promise(resolve => setTimeout(resolve, 100));
 
+                // Auto-scroll to progress indicator for single-alpha analysis immediately
+                if (config.analysisMode === 'single') {
+                    setTimeout(() => {
+                        const progressElement = document.querySelector('[data-single-alpha-progress]');
+                        if (progressElement) {
+                            progressElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        }
+                    }, 200);
+                }
+
                 // Auto-scroll to progress indicator for N-alpha and eFDR analysis only
                 if (config.analysisMode === 'multi' && (config.analysisType === 'alpha' || config.analysisType === 'efdr')) {
                     setTimeout(() => {
@@ -6959,21 +6969,13 @@ Click to select`}
                         }
                     }, 200); // Give time for UI to render
                 }
-                
+
                 try {
                     if (config.analysisMode === 'single') {
                         // Single alpha analysis
                         const results = await runSingleAlphaAnalysis(config.alpha);
                         setAnalysisResults(results);
                         console.log(`SSVD complete: ${results.detections} detections, ${results.sparsity}% sparsity, ${results.iterations} iterations`);
-
-                        // Auto-scroll to results after rendering
-                        setTimeout(() => {
-                            const resultsElement = document.querySelector('[data-single-alpha-results]');
-                            if (resultsElement) {
-                                resultsElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                            }
-                        }, 300);
                     } else if (config.analysisMode === 'multi') {
                         // Multi-alpha analysis
                         const alphaValues = [];
@@ -7365,7 +7367,7 @@ Click to select`}
                                 />
                                 {/* Show progress when running single-alpha */}
                                 {isRunningAnalysis && (
-                                    <div className="bg-white rounded-lg shadow-md p-6 mt-6">
+                                    <div className="bg-white rounded-lg shadow-md p-6 mt-6" data-single-alpha-progress>
                                         <div className="flex flex-col items-center justify-center">
                                             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600 mb-4"></div>
                                             <p className="text-gray-600">Running SSVD Analysis...</p>
