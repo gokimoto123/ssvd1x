@@ -6967,14 +6967,27 @@ Click to select`}
                         setAnalysisResults(results);
                         console.log(`SSVD complete: ${results.detections} detections, ${results.sparsity}% sparsity, ${results.iterations} iterations`);
 
-                        // Scroll to results summary after analysis completes and renders
-                        setTimeout(() => {
+                        // Scroll to results summary after analysis completes - poll for element with retries
+                        let scrollAttempts = 0;
+                        const maxScrollAttempts = 20; // Try for up to 1 second
+                        const scrollToResults = () => {
                             const resultsSummary = document.querySelector('[data-results-summary]');
                             if (resultsSummary) {
-                                console.log('✅ Scrolling to results summary');
+                                console.log('✅ Found results summary, scrolling...');
                                 resultsSummary.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                            } else {
+                                scrollAttempts++;
+                                console.log(`⏳ Waiting for results to render... attempt ${scrollAttempts}/${maxScrollAttempts}`);
+                                if (scrollAttempts < maxScrollAttempts) {
+                                    setTimeout(scrollToResults, 50);
+                                } else {
+                                    // Fallback: just scroll to bottom
+                                    console.log('⚠️ Results element not found, scrolling to bottom as fallback');
+                                    window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'smooth' });
+                                }
                             }
-                        }, 300);
+                        };
+                        setTimeout(scrollToResults, 100);
                     } else if (config.analysisMode === 'multi') {
                         // Multi-alpha analysis
                         const alphaValues = [];
