@@ -6138,7 +6138,7 @@ Click to select`}
             return (
                 <div className="space-y-6 mt-6">
                     {/* Summary Statistics */}
-                    <div className="bg-white rounded-lg shadow-md p-6">
+                    <div className="bg-white rounded-lg shadow-md p-6" data-results-summary>
                         <div className="mb-4 flex justify-between items-center">
                             <h2 className="text-xl font-semibold">
                                 {results.fromAnalysisStep === 'nalpha' ? 'Summary of Results for Selected Alpha' : 'Summary of Results'}
@@ -6948,18 +6948,6 @@ Click to select`}
                 // Small delay to ensure UI renders before starting intensive computation
                 await new Promise(resolve => setTimeout(resolve, 100));
 
-                // Auto-scroll to progress indicator for single-alpha analysis immediately
-                if (config.analysisMode === 'single') {
-                    // Scroll to bottom of page to ensure progress is visible
-                    setTimeout(() => {
-                        console.log('🔄 Single-alpha: Scrolling to show progress...');
-                        window.scrollTo({
-                            top: document.documentElement.scrollHeight,
-                            behavior: 'smooth'
-                        });
-                    }, 150);
-                }
-
                 // Auto-scroll to progress indicator for N-alpha and eFDR analysis only
                 if (config.analysisMode === 'multi' && (config.analysisType === 'alpha' || config.analysisType === 'efdr')) {
                     setTimeout(() => {
@@ -6978,6 +6966,15 @@ Click to select`}
                         const results = await runSingleAlphaAnalysis(config.alpha);
                         setAnalysisResults(results);
                         console.log(`SSVD complete: ${results.detections} detections, ${results.sparsity}% sparsity, ${results.iterations} iterations`);
+
+                        // Scroll to results summary after analysis completes and renders
+                        setTimeout(() => {
+                            const resultsSummary = document.querySelector('[data-results-summary]');
+                            if (resultsSummary) {
+                                console.log('✅ Scrolling to results summary');
+                                resultsSummary.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                            }
+                        }, 300);
                     } else if (config.analysisMode === 'multi') {
                         // Multi-alpha analysis
                         const alphaValues = [];
