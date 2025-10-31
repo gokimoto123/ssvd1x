@@ -6966,6 +6966,14 @@ Click to select`}
                         const results = await runSingleAlphaAnalysis(config.alpha);
                         setAnalysisResults(results);
                         console.log(`SSVD complete: ${results.detections} detections, ${results.sparsity}% sparsity, ${results.iterations} iterations`);
+
+                        // Auto-scroll to results after rendering
+                        setTimeout(() => {
+                            const resultsElement = document.querySelector('[data-single-alpha-results]');
+                            if (resultsElement) {
+                                resultsElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                            }
+                        }, 300);
                     } else if (config.analysisMode === 'multi') {
                         // Multi-alpha analysis
                         const alphaValues = [];
@@ -7366,22 +7374,24 @@ Click to select`}
                                 )}
                                 {/* Show results when not running */}
                                 {!isRunningAnalysis && analysisResults && analysisResults.mode === 'single' && (
-                                    <SSVDResultsDisplay
-                                        results={analysisResults}
-                                        matrixInfo={matrixInfo}
-                                        matrix={matrix}
-                                        onBack={analysisResults.fromAnalysisStep === 'efdr' ? () => {
-                                            // Back to eFDR results table
-                                            console.log('⬅️ Back to eFDR results');
-                                            setAnalysisResults(null);
-                                        } : undefined}
-                                        onNewAnalysis={() => {
-                                            setAnalysisResults(null);
-                                        }}
-                                        onResetToOriginal={resetData}
-                                        onRerunWithAlpha={handleRerunWithAlpha}
-                                        selectedAlphaeFDR={selectedAlphaeFDR}
-                                    />
+                                    <div data-single-alpha-results>
+                                        <SSVDResultsDisplay
+                                            results={analysisResults}
+                                            matrixInfo={matrixInfo}
+                                            matrix={matrix}
+                                            onBack={analysisResults.fromAnalysisStep === 'efdr' ? () => {
+                                                // Back to eFDR results table
+                                                console.log('⬅️ Back to eFDR results');
+                                                setAnalysisResults(null);
+                                            } : undefined}
+                                            onNewAnalysis={() => {
+                                                setAnalysisResults(null);
+                                            }}
+                                            onResetToOriginal={resetData}
+                                            onRerunWithAlpha={handleRerunWithAlpha}
+                                            selectedAlphaeFDR={selectedAlphaeFDR}
+                                        />
+                                    </div>
                                 )}
 
                                 {/* eFDR Section for pure single-alpha */}
