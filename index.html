@@ -7443,16 +7443,20 @@ Click to select`}
                                                         Number of Permutations (Nperm)
                                                     </label>
                                                     <input
-                                                        type="number"
+                                                        type="text"
                                                         inputMode="numeric"
                                                         pattern="[0-9]*"
-                                                        min="10"
-                                                        max="1000"
-                                                        step="1"
                                                         value={eFDRParameters.Nperm ?? 25}
                                                         onChange={(e) => {
                                                             const val = e.target.value;
-                                                            seteFDRParameters({...eFDRParameters, Nperm: val === '' ? '' : parseInt(val)});
+                                                            // Allow empty or numeric values only
+                                                            if (val === '' || /^\d+$/.test(val)) {
+                                                                const num = val === '' ? '' : parseInt(val);
+                                                                // Enforce min/max constraints
+                                                                if (val === '' || (num >= 10 && num <= 1000)) {
+                                                                    seteFDRParameters({...eFDRParameters, Nperm: num});
+                                                                }
+                                                            }
                                                         }}
                                                         className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                                                     />
@@ -7964,16 +7968,20 @@ Click to select`}
                                                         Number of Permutations (Nperm)
                                                     </label>
                                                     <input
-                                                        type="number"
+                                                        type="text"
                                                         inputMode="numeric"
                                                         pattern="[0-9]*"
-                                                        min="10"
-                                                        max="1000"
-                                                        step="1"
                                                         value={eFDRParameters.Nperm ?? 25}
                                                         onChange={(e) => {
                                                             const val = e.target.value;
-                                                            seteFDRParameters({...eFDRParameters, Nperm: val === '' ? '' : parseInt(val)});
+                                                            // Allow empty or numeric values only
+                                                            if (val === '' || /^\d+$/.test(val)) {
+                                                                const num = val === '' ? '' : parseInt(val);
+                                                                // Enforce min/max constraints
+                                                                if (val === '' || (num >= 10 && num <= 1000)) {
+                                                                    seteFDRParameters({...eFDRParameters, Nperm: num});
+                                                                }
+                                                            }
                                                         }}
                                                         className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                                                     />
