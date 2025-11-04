@@ -5134,13 +5134,16 @@ Click to select`}
                 return { ordered, merges, tree: clusters[0] };
             };
 
-            // Cluster rows and columns
+            // Cluster rows only
             const rowCluster = clusterRows(zScoredMatrix);
-            const transposed = zScoredMatrix[0].map((_, colIdx) => zScoredMatrix.map(row => row[colIdx]));
-            const colCluster = clusterRows(transposed);
 
-            // Reorder matrix based on clustering
-            const clusteredMatrix = rowCluster.ordered.map(i => colCluster.ordered.map(j => zScoredMatrix[i][j]));
+            // Sort columns by v1 scores (smallest to largest)
+            const v1 = ssvdResults.v;
+            const colOrder = Array.from({length: N}, (_, i) => i)
+                .sort((a, b) => v1[a] - v1[b]);
+
+            // Reorder matrix: clustered rows, v1-sorted columns
+            const clusteredMatrix = rowCluster.ordered.map(i => colOrder.map(j => zScoredMatrix[i][j]));
             
             // Color mapping function for Canvas (returns RGB array)
             const getColorRGB = (zScore) => {
@@ -5235,39 +5238,44 @@ Click to select`}
                 }
             }, [rowCluster, canvasHeight]);
 
-            // Render column dendrogram (top) - simplified for hierarchical clustering
+            // Render v1 scores as column header (showing the step function)
             React.useEffect(() => {
                 const canvas = colDendrogramRef.current;
-                if (!canvas || !colCluster.tree) return;
+                if (!canvas) return;
 
                 const ctx = canvas.getContext('2d');
                 canvas.width = canvasWidth;
                 canvas.height = colDendrogramHeight;
 
                 ctx.clearRect(0, 0, canvasWidth, colDendrogramHeight);
-                ctx.strokeStyle = '#333';
-                ctx.lineWidth = 1;
 
-                // Simplified dendrogram rendering for hierarchical clustering
-                if (colCluster.merges && colCluster.merges.length > 0) {
-                    const maxHeight = Math.max(...colCluster.merges.map(m => m.height), 0.01);
+                // Draw v1 values as a line plot showing step function
+                const v1Sorted = colOrder.map(i => v1[i]);
+                const minV1 = Math.min(...v1Sorted);
+                const maxV1 = Math.max(...v1Sorted);
+                const range = maxV1 - minV1 || 1;
 
-                    colCluster.merges.forEach((merge, idx) => {
-                        const x = (idx + 0.5) * (canvasWidth / colCluster.merges.length);
-                        const y = colDendrogramHeight - (merge.height / maxHeight) * (colDendrogramHeight - 10);
+                ctx.strokeStyle = '#2563eb';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
 
-                        ctx.beginPath();
-                        ctx.moveTo(x, colDendrogramHeight - 5);
+                v1Sorted.forEach((val, idx) => {
+                    const x = (idx + 0.5) * cellWidth;
+                    const y = colDendrogramHeight - 10 - ((val - minV1) / range) * (colDendrogramHeight - 20);
+                    if (idx === 0) {
+                        ctx.moveTo(x, y);
+                    } else {
                         ctx.lineTo(x, y);
-                        ctx.stroke();
-                    });
-                }
-            }, [colCluster, canvasWidth]);
+                    }
+                });
+
+                ctx.stroke();
+            }, [v1, colOrder, canvasWidth, cellWidth]);
 
             return (
                 <div className="bg-white rounded-lg shadow-md p-6">
                     <h3 className="text-lg font-semibold mb-4 text-center">
-                        Clustered Heatmap of Solution Submatrix ({Q} detections x {N} samples)
+                        Heatmap of Solution Submatrix ({Q} detections x {N} samples, columns sorted by v1)
                     </h3>
 
                     {isRendering && (
