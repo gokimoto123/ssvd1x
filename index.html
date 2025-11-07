@@ -7638,6 +7638,19 @@ Click to select`}
                                                         based on {selectedAlphaeFDR.Nperm || 0} permutation tests.
                                                     </p>
                                                 </div>
+
+                                                {/* Recalculate button */}
+                                                <div className="mt-4 pt-4 border-t border-gray-200">
+                                                    <button
+                                                        onClick={() => {
+                                                            setSelectedAlphaeFDR(null);
+                                                            seteFDRState('idle'); // State machine transition: complete → idle
+                                                        }}
+                                                        className="px-4 py-2 text-sm bg-gray-100 text-gray-700 font-medium rounded-lg hover:bg-gray-200 transition-all duration-200"
+                                                    >
+                                                        Recalculate eFDR
+                                                    </button>
+                                                </div>
                                             </div>
                                         )}
                                     </div>
@@ -8193,7 +8206,7 @@ Click to select`}
                                                 }}
                                                 className="px-4 py-2 text-sm bg-gray-100 text-gray-700 font-medium rounded-lg hover:bg-gray-200 transition-all duration-200"
                                             >
-                                                Recalculate with Different Parameters
+                                                Recalculate eFDR
                                             </button>
                                         </div>
                                     </div>
