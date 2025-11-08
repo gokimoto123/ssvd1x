@@ -6967,6 +6967,17 @@ Click to select`}
 
             const handleStartAnalysis = async (config) => {
                 console.log('Starting analysis with config:', config);
+
+                // Clear ALL previous analysis results to prevent residual state
+                console.log('🧹 Clearing previous analysis results');
+                setAnalysisResults(null);
+                setAlphaSequenceResults(null);
+                setFDRResults(null);
+                setSelectedAlpha(null);
+                setSelectedAlphaIndex(null);
+                setSelectedAlphaeFDR(null);
+                seteFDRState('idle');
+
                 console.log('🔄 Setting isRunningAnalysis to TRUE');
                 setIsRunningAnalysis(true);
                 setIsAnalysisCancelled(false);
