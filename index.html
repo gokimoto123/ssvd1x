@@ -6750,6 +6750,10 @@ Click to select`}
                 setAlphaSequenceResults(null);
                 setAnalysisStep(null); // Start at step 1: Single vs Multi
                 setShowAnalysisPanel(true);
+
+                // Reset Nperm to default for all modes
+                setNperm(25);
+                seteFDRParameters({ Nperm: 25 });
                 
                 // Smooth scroll to analysis section
                 setTimeout(() => {
@@ -7447,6 +7451,9 @@ Click to select`}
                                             } : undefined}
                                             onNewAnalysis={() => {
                                                 setAnalysisResults(null);
+                                                // Reset Nperm to default
+                                                setNperm(25);
+                                                seteFDRParameters({ Nperm: 25 });
                                             }}
                                             onResetToOriginal={resetData}
                                             onRerunWithAlpha={handleRerunWithAlpha}
@@ -7932,6 +7939,9 @@ Click to select`}
                                         setFDRResults(null);
                                         setSelectedAlpha(null);
                                         setShowAnalysisPanel(true);
+                                        // Reset Nperm to default
+                                        setNperm(25);
+                                        seteFDRParameters({ Nperm: 25 });
                                     }}
                                     onResetToOriginal={resetData}
                                 />
