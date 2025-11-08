@@ -6766,6 +6766,9 @@ Click to select`}
             
             const handleAnalysisStepSelect = (step) => {
                 setAnalysisStep(step);
+                // Reset Nperm to default when switching analysis modes
+                setNperm(25);
+                seteFDRParameters({ Nperm: 25 });
             };
             
             const handleBackToDataReview = () => {
