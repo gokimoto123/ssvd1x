@@ -4071,9 +4071,12 @@ Click to select`}
                             <div className="flex space-x-3">
                                 <button
                                     onClick={() => onStepSelect(null)}
-                                    className="px-4 py-2 border border-slate-300 text-slate-600 bg-slate-50 rounded-md hover:bg-blue-50 hover:border-blue-300 hover:text-blue-700 transition-colors"
+                                    className="bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 text-white px-4 py-2 rounded-lg font-medium text-sm flex items-center gap-2 transition-colors"
                                 >
-                                    ← Back
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                                    </svg>
+                                    Back
                                 </button>
                                 <button
                                     onClick={() => {
@@ -4665,9 +4668,12 @@ Click to select`}
                                 <div className="flex space-x-2">
                                     <button
                                         onClick={onCancel}
-                                        className="px-4 py-2 border border-slate-300 text-slate-600 bg-slate-50 rounded-md hover:bg-blue-50 hover:border-blue-300 hover:text-blue-700 transition-colors"
+                                        className="bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 text-white px-4 py-2 rounded-lg font-medium text-sm flex items-center gap-2 transition-colors"
                                     >
-                                        ← Back
+                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                                        </svg>
+                                        Back
                                     </button>
                                     <button
                                         onClick={() => window.location.reload()}
@@ -5039,17 +5045,17 @@ Click to select`}
                 return row.map(val => std > 0 ? (val - mean) / std : 0);
             });
 
-            // Simple hierarchical clustering using correlation distance with dendrogram info
+            // Proper hierarchical clustering using complete linkage
             const clusterRows = (matrix) => {
                 const n = matrix.length;
-                const correlations = [];
 
-                // Calculate pairwise correlations
+                // Calculate pairwise correlation distances
+                const distances = [];
                 for (let i = 0; i < n; i++) {
-                    correlations[i] = [];
+                    distances[i] = [];
                     for (let j = 0; j < n; j++) {
                         if (i === j) {
-                            correlations[i][j] = 1;
+                            distances[i][j] = 0;
                         } else {
                             const r1 = matrix[i];
                             const r2 = matrix[j];
@@ -5061,50 +5067,89 @@ Click to select`}
                                 den1 += (r1[k] - mean1) ** 2;
                                 den2 += (r2[k] - mean2) ** 2;
                             }
-                            correlations[i][j] = den1 * den2 > 0 ? num / Math.sqrt(den1 * den2) : 0;
+                            const corr = den1 * den2 > 0 ? num / Math.sqrt(den1 * den2) : 0;
+                            distances[i][j] = 1 - corr; // Convert to distance
                         }
                     }
                 }
 
-                // Greedy ordering based on correlations with merge tracking
-                const ordered = [0];
-                const remaining = Array.from({length: n}, (_, i) => i).slice(1);
-                const merges = []; // Track merge order and distances
+                // Agglomerative hierarchical clustering with complete linkage
+                // Each item starts as its own cluster
+                const clusters = Array.from({length: n}, (_, i) => ({
+                    items: [i],
+                    height: 0
+                }));
+                const merges = [];
 
-                while (remaining.length > 0) {
-                    const last = ordered[ordered.length - 1];
-                    let bestIdx = 0;
-                    let bestCorr = -2;
+                // Merge clusters until only one remains
+                while (clusters.length > 1) {
+                    // Find closest pair of clusters
+                    let minDist = Infinity;
+                    let mergeI = 0, mergeJ = 1;
 
-                    for (let i = 0; i < remaining.length; i++) {
-                        const corr = correlations[last][remaining[i]];
-                        if (corr > bestCorr) {
-                            bestCorr = corr;
-                            bestIdx = i;
+                    for (let i = 0; i < clusters.length; i++) {
+                        for (let j = i + 1; j < clusters.length; j++) {
+                            // Complete linkage: max distance between any pair of items
+                            let maxDist = 0;
+                            for (const itemI of clusters[i].items) {
+                                for (const itemJ of clusters[j].items) {
+                                    maxDist = Math.max(maxDist, distances[itemI][itemJ]);
+                                }
+                            }
+
+                            if (maxDist < minDist) {
+                                minDist = maxDist;
+                                mergeI = i;
+                                mergeJ = j;
+                            }
                         }
                     }
 
-                    const nextItem = remaining[bestIdx];
+                    // Merge the two closest clusters
+                    const newCluster = {
+                        items: [...clusters[mergeI].items, ...clusters[mergeJ].items],
+                        height: minDist,
+                        left: clusters[mergeI],
+                        right: clusters[mergeJ]
+                    };
+
                     merges.push({
-                        index: ordered.length,
-                        item: nextItem,
-                        distance: 1 - bestCorr // Convert correlation to distance
+                        clusters: [mergeI, mergeJ],
+                        height: minDist,
+                        size: newCluster.items.length
                     });
 
-                    ordered.push(nextItem);
-                    remaining.splice(bestIdx, 1);
+                    // Remove old clusters and add new one
+                    clusters.splice(Math.max(mergeI, mergeJ), 1);
+                    clusters.splice(Math.min(mergeI, mergeJ), 1);
+                    clusters.push(newCluster);
                 }
 
-                return { ordered, merges };
+                // Extract ordering from dendrogram using in-order traversal
+                const extractOrder = (cluster) => {
+                    if (cluster.items.length === 1) {
+                        return cluster.items;
+                    }
+                    const leftOrder = extractOrder(cluster.left);
+                    const rightOrder = extractOrder(cluster.right);
+                    return [...leftOrder, ...rightOrder];
+                };
+
+                const ordered = extractOrder(clusters[0]);
+
+                return { ordered, merges, tree: clusters[0] };
             };
 
-            // Cluster rows and columns
+            // Cluster rows only
             const rowCluster = clusterRows(zScoredMatrix);
-            const transposed = zScoredMatrix[0].map((_, colIdx) => zScoredMatrix.map(row => row[colIdx]));
-            const colCluster = clusterRows(transposed);
 
-            // Reorder matrix based on clustering
-            const clusteredMatrix = rowCluster.ordered.map(i => colCluster.ordered.map(j => zScoredMatrix[i][j]));
+            // Sort columns by v1 scores (smallest to largest)
+            const v1 = ssvdResults.v;
+            const colOrder = Array.from({length: N}, (_, i) => i)
+                .sort((a, b) => v1[a] - v1[b]);
+
+            // Reorder matrix: clustered rows, v1-sorted columns
+            const clusteredMatrix = rowCluster.ordered.map(i => colOrder.map(j => zScoredMatrix[i][j]));
             
             // Color mapping function for Canvas (returns RGB array)
             const getColorRGB = (zScore) => {
@@ -5168,10 +5213,10 @@ Click to select`}
                 setIsRendering(false);
             }, [detectedIndices, matrix]);
 
-            // Render row dendrogram (left side)
+            // Render row dendrogram (left side) - simplified for hierarchical clustering
             React.useEffect(() => {
                 const canvas = rowDendrogramRef.current;
-                if (!canvas || !rowCluster.merges) return;
+                if (!canvas || !rowCluster.tree) return;
 
                 const ctx = canvas.getContext('2d');
                 canvas.width = rowDendrogramWidth;
@@ -5181,71 +5226,62 @@ Click to select`}
                 ctx.strokeStyle = '#333';
                 ctx.lineWidth = 1;
 
-                // Draw dendrogram from merges
-                const maxDist = Math.max(...rowCluster.merges.map(m => m.distance), 0.01);
+                // Simplified dendrogram rendering for hierarchical clustering
+                // Draw basic tree structure showing merge heights
+                if (rowCluster.merges && rowCluster.merges.length > 0) {
+                    const maxHeight = Math.max(...rowCluster.merges.map(m => m.height), 0.01);
 
-                rowCluster.merges.forEach((merge, idx) => {
-                    const y = (merge.index + 0.5) * cellHeight;
-                    const prevY = idx > 0 ? (merge.index - 0.5) * cellHeight : y;
-                    const x = rowDendrogramWidth - (merge.distance / maxDist) * (rowDendrogramWidth - 10);
+                    // Draw simplified representation
+                    rowCluster.merges.forEach((merge, idx) => {
+                        const y = (idx + 0.5) * (canvasHeight / rowCluster.merges.length);
+                        const x = rowDendrogramWidth - (merge.height / maxHeight) * (rowDendrogramWidth - 10);
 
-                    // Draw horizontal line to merge point
-                    ctx.beginPath();
-                    ctx.moveTo(rowDendrogramWidth - 5, y);
-                    ctx.lineTo(x, y);
-                    ctx.stroke();
-
-                    // Draw vertical connector if not first
-                    if (idx > 0) {
                         ctx.beginPath();
-                        ctx.moveTo(x, prevY);
+                        ctx.moveTo(rowDendrogramWidth - 5, y);
                         ctx.lineTo(x, y);
                         ctx.stroke();
-                    }
-                });
-            }, [rowCluster, canvasHeight, cellHeight]);
+                    });
+                }
+            }, [rowCluster, canvasHeight]);
 
-            // Render column dendrogram (top)
+            // Render v1 scores as column header (showing the step function)
             React.useEffect(() => {
                 const canvas = colDendrogramRef.current;
-                if (!canvas || !colCluster.merges) return;
+                if (!canvas) return;
 
                 const ctx = canvas.getContext('2d');
                 canvas.width = canvasWidth;
                 canvas.height = colDendrogramHeight;
 
                 ctx.clearRect(0, 0, canvasWidth, colDendrogramHeight);
-                ctx.strokeStyle = '#333';
-                ctx.lineWidth = 1;
 
-                // Draw dendrogram from merges
-                const maxDist = Math.max(...colCluster.merges.map(m => m.distance), 0.01);
+                // Draw v1 values as a line plot showing step function
+                const v1Sorted = colOrder.map(i => v1[i]);
+                const minV1 = Math.min(...v1Sorted);
+                const maxV1 = Math.max(...v1Sorted);
+                const range = maxV1 - minV1 || 1;
 
-                colCluster.merges.forEach((merge, idx) => {
-                    const x = (merge.index + 0.5) * cellWidth;
-                    const prevX = idx > 0 ? (merge.index - 0.5) * cellWidth : x;
-                    const y = colDendrogramHeight - (merge.distance / maxDist) * (colDendrogramHeight - 10);
+                ctx.strokeStyle = '#2563eb';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
 
-                    // Draw vertical line to merge point
-                    ctx.beginPath();
-                    ctx.moveTo(x, colDendrogramHeight - 5);
-                    ctx.lineTo(x, y);
-                    ctx.stroke();
-
-                    // Draw horizontal connector if not first
-                    if (idx > 0) {
-                        ctx.beginPath();
-                        ctx.moveTo(prevX, y);
+                v1Sorted.forEach((val, idx) => {
+                    const x = (idx + 0.5) * cellWidth;
+                    const y = colDendrogramHeight - 10 - ((val - minV1) / range) * (colDendrogramHeight - 20);
+                    if (idx === 0) {
+                        ctx.moveTo(x, y);
+                    } else {
                         ctx.lineTo(x, y);
-                        ctx.stroke();
                     }
                 });
-            }, [colCluster, canvasWidth, cellWidth]);
+
+                ctx.stroke();
+            }, [v1, colOrder, canvasWidth, cellWidth]);
 
             return (
                 <div className="bg-white rounded-lg shadow-md p-6">
                     <h3 className="text-lg font-semibold mb-4 text-center">
-                        Clustered Heatmap of Solution Submatrix ({Q} detections x {N} samples)
+                        Heatmap of Solution Submatrix ({Q} detections x {N} samples, columns sorted by v1)
                     </h3>
 
                     {isRendering && (
