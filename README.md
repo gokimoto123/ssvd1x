@@ -11,13 +11,14 @@ SSVD1x is a scientific research tool that identifies a small subset of matrix ro
 ## Features
 
 - **Data Upload**: Support for CSV and other tabular data formats
-- **SSVD Algorithm**: Sparse matrix factorization with rank-1, L1 regularization
+- **SSVD Algorithm**: Sparse matrix factorizations of rank-one based on L1 regularization of the singular value decomposition
 - **Multiple Analysis Modes**:
-  - **1-Alpha Analysis**: Sparse model based on pre-selected sparsity parameter
-  - **N-Alpha Analysis**: Sparse model selection based on detection dynamics
-  - **eFDR Analysis**: Sparse model selection based on permutation-based eFDR dynamics
-- **Interactive Visualization of Results**: Live eFDR, detection, detection gradient plots, interactive tables, scatter plots, line plots, and hierarchically clustered heatmaps
-- **Comprehensive Export Suite**: PDF reports, CSV files, PNG charts
+  - **1-Alpha Analysis**: Sparse models based on a pre-selected sparsity parameter alpha
+  - **N-Alpha Analysis**: Sparse model selection based on detection dynamics on a sequence of alpha values
+  - **eFDR Analysis**: Sparse model selection based on permutation-based eFDR dynamics on a sequence of alpha values 
+- **Interactive Visualization of Results**: Interactive eFDR, detection, detection gradient plots, interactive tables, scatter plots, line plots, and hierarchically clustered heatmaps
+- **Comprehensive Export Suite**: PDF reports, CSV files, PNG images and line plots
+- **Synthetic and Real-World Demo Datasets**: Includes synthetic datasets of varying signal-to-noise ratio (SNR) and a pre-processed, high-dimensional genomics dataset
 - **Mathematical Validation**: Built-in regression test suite for algorithm verification
 
 ## Quick Start
@@ -27,7 +28,7 @@ SSVD1x is a scientific research tool that identifies a small subset of matrix ro
 **No installation required!** Access the app directly at:
 **https://gokimoto123.github.io/ssvd1x/**
 
-Simply visit the link, upload your CSV data matrix, and start analyzing.
+Simply visit the link, upload demo data or your own data matrix, and start analyzing.
 
 ### Run Locally (Optional)
 
@@ -53,15 +54,16 @@ python3 -m http.server 8000
 
 ### Core Algorithms
 - `svd1()`: Power iteration method for singular value decomposition
-- `SSVDR1Algorithm()`: Sparse SVD with iterative soft thresholding
+- `SSVDR1Algorithm()`: Sparse SVD based on iterative soft thresholding
 - `runFDRAnalysis()`: Permutation-based FDR analysis
 - `permuteMatrixRows()`: Matrix row permutation for null hypothesis testing
 
 ### Mathematical Background
-The application implements sparse SVD for biomarker discovery in P × N data matrices where:
+The application implements sparse SVD for the discovery of the K rows of a P × N data matrix where:
+- K << P (sparse signal)
 - P >> N (many more variables than samples)
-- K << P (sparse embedded signal)
-- Typical applications include genomics, proteomics, and medical diagnostics
+
+Typical applications include genomics, proteomics, and medical diagnostics
 
 ## Repository Structure
 
