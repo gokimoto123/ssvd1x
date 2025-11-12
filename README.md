@@ -107,13 +107,14 @@ The application includes a comprehensive mathematical regression test suite acce
 
 ## Release Notes
 
-**Version 1.0.0 (October 2025)**
+**Version 1.0.0 (November 2025)**
 - Stable production release
 - Complete export functionality (PDF, Excel, PNG)
 - Multiple analysis modes (1-Alpha, N-Alpha, and eFDR)
 - Hierarchical clustering visualization
 - Mathematical regression test suite
 - Comprehensive UI with tooltips and consistent navigation
+- Demo datasets for evaluating features of the application
 
 ## Known Issues
 
