@@ -129,6 +129,40 @@ For example, in `dataset_1000x100_step_SNRneg5.csv`, the signal features might b
 - `ground_truth_SNRneg20.csv` → validates `dataset_1000x100_step_SNRneg20.csv`
 - `ground_truth_SNRneg25.csv` → validates `dataset_1000x100_step_SNRneg25.csv`
 
+### How to Download Ground Truth Files
+
+**Method 1: Via GitHub Website (Easiest)**
+
+1. Click on any ground truth file link below
+2. Click the **"Download raw file"** button (top right of file view)
+3. File downloads to your Downloads folder
+
+**Direct links:**
+- [ground_truth_SNRneg5.csv](https://github.com/gokimoto123/ssvd1x/blob/main/demo_data/ground_truth_SNRneg5.csv)
+- [ground_truth_SNRneg15.csv](https://github.com/gokimoto123/ssvd1x/blob/main/demo_data/ground_truth_SNRneg15.csv)
+- [ground_truth_SNRneg20.csv](https://github.com/gokimoto123/ssvd1x/blob/main/demo_data/ground_truth_SNRneg20.csv)
+- [ground_truth_SNRneg25.csv](https://github.com/gokimoto123/ssvd1x/blob/main/demo_data/ground_truth_SNRneg25.csv)
+
+**Method 2: Using Command Line (For Scripts/Automation)**
+
+```bash
+# Download specific ground truth file
+curl -O https://raw.githubusercontent.com/gokimoto123/ssvd1x/main/demo_data/ground_truth_SNRneg15.csv
+
+# Or download all ground truth files at once
+for snr in 5 15 20 25; do
+  curl -O https://raw.githubusercontent.com/gokimoto123/ssvd1x/main/demo_data/ground_truth_SNRneg${snr}.csv
+done
+```
+
+**Method 3: Clone Entire Repository**
+
+```bash
+git clone https://github.com/gokimoto123/ssvd1x.git
+cd ssvd1x/demo_data
+ls ground_truth*.csv
+```
+
 ---
 
 ## Recommended Demo Parameters
