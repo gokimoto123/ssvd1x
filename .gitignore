@@ -1,0 +1,28 @@
+# SSVD1x - Exclude large analysis data from git
+
+# Future TCGA analysis data (keep locally only)
+tcga_data/
+ukb_data/
+integrated_analysis/
+
+# Large result files
+*.bigdata
+results/
+analysis_output/
+
+# Temporary test files
+test-simple.html
+index-working.html
+github-*.html
+
+# System files
+.DS_Store
+*.swp
+*.swo
+*~
+
+# Node modules (if used in future)
+node_modules/
+
+# Keep demo_data (already in repo)
+!demo_data/

@@ -1,0 +1,14 @@
+Rank-R Dataset Summary
+=====================
+Generated: 2025-11-19T23:17:52.566Z
+Dimensions: P=1000, N=100, R=1
+Noise Variance: 1
+Allow Overlap: No
+Spectral mSNR: -4.77 dB
+Frobenius mSNR: -5.03 dB
+
+Signal Components:
+- Signal 1 (step): 50 features, scale=2.50
+
+Total Signal Features: 50/1000 (5.0% sparsity)
+Total Noise Features: 950/1000
